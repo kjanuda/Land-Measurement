@@ -586,7 +586,7 @@ export default function Footer() {
           <div className="footer__bottom-inner">
             <p className="footer__copy">
               © {new Date().getFullYear()} <span>GeoLogicX</span>. All rights reserved.
-              Project, Idea &amp; Design by <a href="https://kjanuda.netlify.app/" target="_blank" rel="noreferrer" className="footer__contact-label">Januda J</a>
+              Developed by Januda J Kodithuwakku. Project, Idea &amp; Design by <a href="https://kjanuda.netlify.app/" target="_blank" rel="noreferrer" className="footer__contact-label">Januda J</a>
             </p>
             <ul className="footer__legal" role="list">
               {LEGAL.map((l) => (

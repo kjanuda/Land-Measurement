@@ -90,6 +90,10 @@ function getBearing(p1, p2) {
   return { deg: pos.toFixed(1), compass: dirs[Math.round(pos / 22.5) % 16] };
 }
 
+function getDistanceMeters(p1, p2) {
+  return turf.distance(turf.point([p1[1], p1[0]]), turf.point([p2[1], p2[0]]), { units: "meters" });
+}
+
 function getCentroid(points) {
   if (points.length < 3) return null;
   try {
@@ -116,11 +120,35 @@ async function fetchElevations(points) {
 }
 
 // ─── Canvas diagram for PDF ───────────────────────────────────────────────────
-function drawPolygonCanvas(points, width, height) {
+function drawPolygonCanvas(points, width, height, mode = "normal") {
   const canvas = document.createElement("canvas");
   canvas.width = width; canvas.height = height;
   const ctx = canvas.getContext("2d");
-  ctx.fillStyle = "#0f172a"; ctx.fillRect(0, 0, width, height);
+  if (mode === "satellite") {
+    const grad = ctx.createLinearGradient(0, 0, width, height);
+    grad.addColorStop(0, "#081c0f");
+    grad.addColorStop(0.5, "#112717");
+    grad.addColorStop(1, "#0d2315");
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, width, height);
+    for (let i = 0; i < 80; i++) {
+      ctx.fillStyle = `rgba(255,255,255,${Math.random() * 0.06})`;
+      ctx.fillRect(Math.random() * width, Math.random() * height, 1.25, 1.25);
+    }
+    ctx.strokeStyle = "rgba(255,255,255,0.1)";
+    ctx.lineWidth = 1;
+    for (let i = 0; i <= 6; i++) {
+      ctx.beginPath(); ctx.moveTo((width / 6) * i, 0); ctx.lineTo((width / 6) * i, height); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0, (height / 6) * i); ctx.lineTo(width, (height / 6) * i); ctx.stroke();
+    }
+  } else {
+    ctx.fillStyle = "#0f172a"; ctx.fillRect(0, 0, width, height);
+    ctx.strokeStyle = "rgba(255,255,255,0.05)"; ctx.lineWidth = 1;
+    for (let i = 0; i <= 8; i++) {
+      ctx.beginPath(); ctx.moveTo((width/8)*i, 0); ctx.lineTo((width/8)*i, height); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0, (height/8)*i); ctx.lineTo(width, (height/8)*i); ctx.stroke();
+    }
+  }
   if (points.length < 2) return canvas;
   const lats = points.map(p => p[0]), lngs = points.map(p => p[1]);
   const minLat = Math.min(...lats), maxLat = Math.max(...lats);
@@ -133,34 +161,42 @@ function drawPolygonCanvas(points, width, height) {
   const oy = (height - (maxLat - minLat) * sc) / 2;
   const tx = lng => ox + (lng - minLng) * sc;
   const ty = lat => height - oy - (lat - minLat) * sc;
-  ctx.strokeStyle = "rgba(255,255,255,0.05)"; ctx.lineWidth = 1;
-  for (let i = 0; i <= 8; i++) {
-    ctx.beginPath(); ctx.moveTo((width/8)*i, 0); ctx.lineTo((width/8)*i, height); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(0, (height/8)*i); ctx.lineTo(width, (height/8)*i); ctx.stroke();
-  }
   ctx.beginPath(); ctx.moveTo(tx(points[0][1]), ty(points[0][0]));
   for (let i = 1; i < points.length; i++) ctx.lineTo(tx(points[i][1]), ty(points[i][0]));
   ctx.closePath();
-  ctx.fillStyle = "rgba(99,102,241,0.2)"; ctx.fill();
-  ctx.strokeStyle = "#818cf8"; ctx.lineWidth = 2.5; ctx.stroke();
+  if (mode === "satellite") {
+    ctx.fillStyle = "rgba(34,197,94,0.24)";
+    ctx.strokeStyle = "#7dd3fc";
+    ctx.lineWidth = 3;
+  } else {
+    ctx.fillStyle = "rgba(99,102,241,0.2)";
+    ctx.strokeStyle = "#818cf8";
+    ctx.lineWidth = 2.5;
+  }
+  ctx.fill();
+  ctx.stroke();
   for (let i = 0; i < points.length; i++) {
     const a = points[i], b = points[(i+1) % points.length];
     const dist = getSideLength(a, b);
     const bear = getBearing(a, b);
     const mx = (tx(a[1]) + tx(b[1])) / 2, my = (ty(a[0]) + ty(b[0])) / 2;
-    ctx.fillStyle = "rgba(0,0,0,0.75)"; ctx.fillRect(mx - 34, my - 18, 68, 20);
-    ctx.fillStyle = "#fbbf24"; ctx.font = "bold 10px Arial"; ctx.textAlign = "center";
+    ctx.fillStyle = mode === "satellite" ? "rgba(0,0,0,0.65)" : "rgba(0,0,0,0.75)";
+    ctx.fillRect(mx - 34, my - 18, 68, 20);
+    ctx.fillStyle = mode === "satellite" ? "#f8b319" : "#fbbf24";
+    ctx.font = "bold 10px Arial"; ctx.textAlign = "center";
     ctx.fillText(`${dist.toFixed(2)}m`, mx, my - 6);
-    ctx.fillStyle = "#94a3b8"; ctx.font = "9px Arial";
+    ctx.fillStyle = mode === "satellite" ? "#cbd5e1" : "#94a3b8";
+    ctx.font = "9px Arial";
     ctx.fillText(`${bear.compass} ${bear.deg}°`, mx, my + 4);
   }
   points.forEach((p, i) => {
     const x = tx(p[1]), y = ty(p[0]);
-    ctx.beginPath(); ctx.arc(x, y, 7, 0, Math.PI * 2);
-    ctx.fillStyle = "#6366f1"; ctx.fill();
+    ctx.beginPath(); ctx.arc(x, y, 8, 0, Math.PI * 2);
+    ctx.fillStyle = mode === "satellite" ? "#facc15" : "#6366f1";
+    ctx.fill();
     ctx.strokeStyle = "#fff"; ctx.lineWidth = 2; ctx.stroke();
-    ctx.fillStyle = "#fff"; ctx.font = "bold 11px Arial"; ctx.textAlign = "center";
-    ctx.fillText(`P${i+1}`, x, y - 13);
+    ctx.fillStyle = "#0f172a"; ctx.font = "bold 11px Arial"; ctx.textAlign = "center";
+    ctx.fillText(`P${i+1}`, x, y - 14);
   });
   return canvas;
 }
@@ -202,6 +238,162 @@ export default function LandMap() {
   const [autoActive, setAutoActive] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const lastAutoPoint = useRef(null);
+  const mapRef = useRef(null);
+
+  const lonToWorldX = (lon, z) => ((lon + 180) / 360) * Math.pow(2, z) * 256;
+  const latToWorldY = (lat, z) => {
+    const latRad = (lat * Math.PI) / 180;
+    return ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * Math.pow(2, z) * 256;
+  };
+
+  const loadTileImage = (url) => new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+
+  const loadHtml2Canvas = async () => {
+    if (typeof window === "undefined") return null;
+    if (window.html2canvas) return window.html2canvas;
+    await new Promise((resolve) => {
+      const script = document.createElement("script");
+      script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
+      script.crossOrigin = "anonymous";
+      script.onload = resolve;
+      script.onerror = resolve;
+      document.head.appendChild(script);
+    });
+    return window.html2canvas || null;
+  };
+
+  const captureVisibleMap = async (mode) => {
+    const map = mapRef.current;
+    if (!map) return null;
+    const originalMapType = mapType;
+    let switched = false;
+    if (mode !== originalMapType) {
+      switched = true;
+      setMapType(mode);
+      await new Promise((resolve) => setTimeout(resolve, 900));
+    }
+    const html2canvas = await loadHtml2Canvas();
+    let canvas = null;
+    if (html2canvas) {
+      try {
+        canvas = await html2canvas(map.getContainer(), {
+          backgroundColor: null,
+          useCORS: true,
+          allowTaint: false,
+          scale: 2,
+        });
+      } catch {
+        canvas = null;
+      }
+    }
+    if (switched) setMapType(originalMapType);
+    return canvas;
+  };
+
+  const renderMapSnapshot = async (mode, width, height) => {
+    const domCanvas = await captureVisibleMap(mode);
+    if (domCanvas) {
+      if (domCanvas.width === width && domCanvas.height === height) return domCanvas;
+      const scaled = document.createElement("canvas");
+      scaled.width = width;
+      scaled.height = height;
+      scaled.getContext("2d").drawImage(domCanvas, 0, 0, width, height);
+      return scaled;
+    }
+
+    const map = mapRef.current;
+    if (!map) return null;
+    const size = map.getSize();
+    const bounds = map.getBounds();
+    const z = map.getZoom();
+    const nw = bounds.getNorthWest();
+    const se = bounds.getSouthEast();
+    const urlTemplate = mode === "satellite" ? satelliteMap : normalMap;
+
+    const worldNWx = lonToWorldX(nw.lng, z);
+    const worldNWy = latToWorldY(nw.lat, z);
+
+    const tileXmin = Math.floor(lonToWorldX(nw.lng, z) / 256);
+    const tileXmax = Math.floor(lonToWorldX(se.lng, z) / 256);
+    const tileYmin = Math.floor(latToWorldY(se.lat, z) / 256);
+    const tileYmax = Math.floor(latToWorldY(nw.lat, z) / 256);
+
+    const sourceCanvas = document.createElement("canvas");
+    sourceCanvas.width = size.x;
+    sourceCanvas.height = size.y;
+    const sourceCtx = sourceCanvas.getContext("2d");
+    sourceCtx.fillStyle = "#000";
+    sourceCtx.fillRect(0, 0, sourceCanvas.width, sourceCanvas.height);
+
+    const promises = [];
+    for (let tx = tileXmin; tx <= tileXmax; tx += 1) {
+      for (let ty = tileYmin; ty <= tileYmax; ty += 1) {
+        const url = urlTemplate
+          .replace("{z}", z)
+          .replace("{x}", tx)
+          .replace("{y}", ty);
+        promises.push(loadTileImage(url).then((img) => {
+          if (!img) return;
+          const dx = tx * 256 - worldNWx;
+          const dy = ty * 256 - worldNWy;
+          sourceCtx.drawImage(img, dx, dy, 256, 256);
+        }));
+      }
+    }
+    await Promise.all(promises);
+
+    const projectPoint = (lat, lng) => ({
+      x: lonToWorldX(lng, z) - worldNWx,
+      y: latToWorldY(lat, z) - worldNWy,
+    });
+
+    if (points.length >= 2) {
+      sourceCtx.beginPath();
+      points.forEach((p, idx) => {
+        const pt = projectPoint(p[0], p[1]);
+        if (idx === 0) sourceCtx.moveTo(pt.x, pt.y);
+        else sourceCtx.lineTo(pt.x, pt.y);
+      });
+      sourceCtx.closePath();
+      sourceCtx.fillStyle = mode === "satellite" ? "rgba(34,197,94,0.18)" : "rgba(99,102,241,0.2)";
+      sourceCtx.strokeStyle = mode === "satellite" ? "#4ade80" : "#818cf8";
+      sourceCtx.lineWidth = 3;
+      sourceCtx.fill();
+      sourceCtx.stroke();
+
+      points.forEach((p, i) => {
+        const pt = projectPoint(p[0], p[1]);
+        sourceCtx.beginPath();
+        sourceCtx.arc(pt.x, pt.y, 9, 0, Math.PI * 2);
+        sourceCtx.fillStyle = mode === "satellite" ? "#facc15" : "#6366f1";
+        sourceCtx.fill();
+        sourceCtx.strokeStyle = "#fff";
+        sourceCtx.lineWidth = 2;
+        sourceCtx.stroke();
+        sourceCtx.fillStyle = mode === "satellite" ? "#0f172a" : "#fff";
+        sourceCtx.font = "bold 11px Arial";
+        sourceCtx.textAlign = "center";
+        sourceCtx.fillText(`P${i+1}`, pt.x, pt.y - 14);
+      });
+    }
+
+    if (sourceCanvas.width === width && sourceCanvas.height === height) {
+      return sourceCanvas;
+    }
+
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(sourceCanvas, 0, 0, width, height);
+    return canvas;
+  };
 
   // ── Sheet state (mobile bottom drawer) ───────────────────────────────────────
   // "peek"  = 120px   → just the handle + quick actions visible
@@ -228,9 +420,23 @@ export default function LandMap() {
   const [showLoadModal, setShowLoadModal] = useState(false);
   const [showManualModal, setShowManualModal] = useState(false);
   const [showInsertModal, setShowInsertModal] = useState(false);
+  const [splitMode, setSplitMode] = useState(false);
+  const [splitPoints, setSplitPoints] = useState([]);
+  const [navTarget, setNavTarget] = useState(null);
+  const [navigationActive, setNavigationActive] = useState(false);
+  const [navWatchId, setNavWatchId] = useState(null);
+  const [navDistance, setNavDistance] = useState(null);
+  const [arrivalNotified, setArrivalNotified] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState([]);
+  const [isSearching, setIsSearching] = useState(false);
 
   const SAMPLES = 5;
   const PLOT_COLORS = ["#6366f1","#10b981","#f59e0b","#ef4444","#8b5cf6","#06b6d4"];
+  const MAP_STYLES = [
+    { id: "normal", label: "Street", accent: "#3b82f6" },
+    { id: "satellite", label: "Satellite", accent: "#0ea5e9" },
+  ];
   const normalMap = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
   const satelliteMap = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
 
@@ -257,6 +463,7 @@ export default function LandMap() {
   const perch = area / 25.29;
   const acres = area / 4046.86;
   const centroid = getCentroid(points);
+  const splitPreview = splitPoints.length === 2 ? getSplitPreview(points, splitPoints[0], splitPoints[1]) : null;
 
   // ── Load saved ────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -440,6 +647,207 @@ export default function LandMap() {
     navigator.clipboard.writeText(url).then(() => setMsg("✓ Link copied!")).catch(() => setMsg("Copy failed"));
   };
 
+  const searchLocation = async () => {
+    if (!searchQuery.trim()) {
+      setMsg("Enter a location, address, or landmark.");
+      return;
+    }
+    setIsSearching(true);
+    setMsg("Searching location...");
+    try {
+      const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(searchQuery)}&format=json&limit=5`);
+      const data = await res.json();
+      setSearchResults(Array.isArray(data) ? data : []);
+      if (!data || data.length === 0) {
+        setMsg("No matches found.");
+      } else {
+        setMsg(`Found ${data.length} location${data.length === 1 ? "" : "s"}.`);
+      }
+    } catch (error) {
+      setMsg("Search failed — check your connection.");
+      setSearchResults([]);
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  const goToLocation = (result) => {
+    const lat = parseFloat(result.lat);
+    const lon = parseFloat(result.lon);
+    if (Number.isNaN(lat) || Number.isNaN(lon)) {
+      setMsg("Invalid location result.");
+      return;
+    }
+    const loc = [lat, lon];
+    setCurrentLocation(loc);
+    setFlyTrigger({ count: Date.now(), zoom: 18 });
+    setMapType("satellite");
+    setSearchResults([]);
+    setSearchQuery("");
+    setMsg(`Moved to ${result.display_name}`);
+  };
+
+  const stopNavigation = (silent = false) => {
+    if (navWatchId !== null) {
+      navigator.geolocation.clearWatch(navWatchId);
+      setNavWatchId(null);
+    }
+    setNavigationActive(false);
+    setNavDistance(null);
+    setArrivalNotified(false);
+    if (!silent) setMsg("Navigation stopped.");
+  };
+
+  const monitorTargetArrival = (plotIdx, index, target, enableNav = false) => {
+    if (!navigator.geolocation) {
+      setMsg("GPS unavailable in this browser.");
+      return;
+    }
+    stopNavigation(true);
+    setNavTarget({ plotIdx, index, coords: target });
+    setArrivalNotified(false);
+    setNavigationActive(enableNav);
+    setNavDistance(null);
+    setMsg(enableNav ? `Navigation started to P${index + 1}...` : `Target P${index + 1} selected. Walk to it to trigger arrival alert.`);
+
+    let arrivalTriggered = false;
+    const id = navigator.geolocation.watchPosition(
+      (pos) => {
+        const loc = [pos.coords.latitude, pos.coords.longitude];
+        setCurrentLocation(loc);
+        const distance = getDistanceMeters(loc, target);
+        setNavDistance(distance);
+        if (distance <= 8 && !arrivalTriggered) {
+          arrivalTriggered = true;
+          navigator.geolocation.clearWatch(id);
+          setNavWatchId(null);
+          setNavigationActive(false);
+          setArrivalNotified(true);
+          setNavDistance(distance);
+          setMsg(`Arrived at boundary point P${index + 1}!`, 5000);
+          window.alert(`Arrived at boundary point P${index + 1}!`);
+        }
+      },
+      (err) => {
+        setMsg("Navigation error: " + err.message);
+      },
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
+    );
+    setNavWatchId(id);
+  };
+
+  const startNavigationToPoint = (plotIdx, index) => {
+    const plot = plots[plotIdx];
+    if (!plot || !plot.points[index]) {
+      setMsg("Point not found.");
+      return;
+    }
+    monitorTargetArrival(plotIdx, index, plot.points[index], true);
+  };
+
+  const selectBoundaryPoint = (plotIdx, index, target) => {
+    monitorTargetArrival(plotIdx, index, target, false);
+  };
+
+  const splitActivePlotIntoSections = () => {
+    if (points.length < 3) {
+      setMsg("Plot must have at least 3 points to split.");
+      return;
+    }
+    const poly = turf.polygon([[...points.map(p => [p[1], p[0]]), [points[0][1], points[0][0]]]]);
+    const centroidFeature = turf.centroid(poly);
+    const centroidCoords = [centroidFeature.geometry.coordinates[1], centroidFeature.geometry.coordinates[0]];
+    const sectionPlots = points.map((point, index) => {
+      const nextPoint = points[(index + 1) % points.length];
+      return {
+        id: Date.now() + index,
+        name: `${curPlot.name} - Sec ${index + 1}`,
+        color: PLOT_COLORS[(activePlot + index) % PLOT_COLORS.length],
+        points: [centroidCoords, point, nextPoint],
+      };
+    });
+
+    setPlots(prev => {
+      const next = [...prev];
+      next.splice(activePlot, 1, ...sectionPlots);
+      return next;
+    });
+    setActivePlot(activePlot);
+    setMsg(`Split ${curPlot.name} into ${sectionPlots.length} sections.`);
+  };
+
+  function getSplitPreview(pts, idxA, idxB) {
+    if (!pts || pts.length < 3) return null;
+    const a = Math.min(idxA, idxB);
+    const b = Math.max(idxA, idxB);
+    if (a === b) return null;
+    const adjacent = b === a + 1 || (a === 0 && b === pts.length - 1);
+    if (adjacent) return null;
+    const sectionA = pts.slice(a, b + 1);
+    const sectionB = [...pts.slice(b), ...pts.slice(0, a + 1)];
+    if (sectionA.length < 3 || sectionB.length < 3) return null;
+    const polygonA = turf.polygon([[...sectionA.map(p => [p[1], p[0]]), [sectionA[0][1], sectionA[0][0]]]]);
+    const polygonB = turf.polygon([[...sectionB.map(p => [p[1], p[0]]), [sectionB[0][1], sectionB[0][0]]]]);
+    return {
+      sectionA,
+      sectionB,
+      areaA: turf.area(polygonA),
+      areaB: turf.area(polygonB),
+      perimeterA: calcPerimeter(sectionA),
+      perimeterB: calcPerimeter(sectionB),
+      indices: [a, b],
+    };
+  }
+
+  const toggleSplitPoint = (index) => {
+    if (!splitMode) return;
+    setSplitPoints(prev => {
+      if (prev.includes(index)) return prev.filter(i => i !== index);
+      if (prev.length === 0) return [index];
+      if (prev.length === 1) return [prev[0], index];
+      return [prev[1], index];
+    });
+  };
+
+  const cancelManualSplit = () => {
+    setSplitMode(false);
+    setSplitPoints([]);
+    setMsg("Manual division cancelled.");
+  };
+
+  const applyManualSplit = () => {
+    if (splitPoints.length !== 2) {
+      setMsg("Pick two boundary points to split.");
+      return;
+    }
+    const preview = getSplitPreview(points, splitPoints[0], splitPoints[1]);
+    if (!preview) {
+      setMsg("Invalid split selection. Choose two non-adjacent boundary points.");
+      return;
+    }
+    const section1 = {
+      id: Date.now(),
+      name: `${curPlot.name} - A`,
+      color: PLOT_COLORS[plots.length % PLOT_COLORS.length],
+      points: preview.sectionA,
+    };
+    const section2 = {
+      id: Date.now() + 1,
+      name: `${curPlot.name} - B`,
+      color: PLOT_COLORS[(plots.length + 1) % PLOT_COLORS.length],
+      points: preview.sectionB,
+    };
+    setPlots(prev => {
+      const next = [...prev];
+      next.splice(activePlot, 1, section1, section2);
+      return next;
+    });
+    setActivePlot(activePlot);
+    setSplitMode(false);
+    setSplitPoints([]);
+    setMsg(`Split ${curPlot.name} into two plot sections.`);
+  };
+
   const exportKML = () => {
     if (points.length < 3) { setMsg("Points 3+ ඕන!"); return; }
     const coords = [...points, points[0]].map(p => `${p[1]},${p[0]},0`).join(" ");
@@ -473,7 +881,7 @@ export default function LandMap() {
     setPoints(prev => prev.map((p, i) => i === index ? [lat, lng] : p));
   };
 
-  const exportPDF = async () => {
+  const exportPDF = async (mode = "normal") => {
     if (points.length < 3) { setMsg("Points 3+ ඕන PDF export කරන්න"); return; }
     setIsExporting(true); setMsg("PDF generate කරනවා...", 0);
     try {
@@ -489,13 +897,14 @@ export default function LandMap() {
       doc.setFillColor(10,15,30); doc.rect(0,0,pw,34,"F");
       doc.setFillColor(99,102,241); doc.rect(0,0,5,34,"F");
       doc.setTextColor(255,255,255); doc.setFontSize(18); doc.setFont("helvetica","bold");
-      doc.text("LAND SURVEY REPORT", mg+4, 14);
+      doc.text(mode === "satellite" ? "SATELLITE SURVEY REPORT" : "LAND SURVEY REPORT", mg+4, 14);
       doc.setFontSize(8); doc.setFont("helvetica","normal"); doc.setTextColor(160,160,200);
       const now = new Date();
       doc.text(`Survey: ${surveyName}  |  Plot: ${curPlot.name}`, mg+4, 21);
       doc.text(`Date: ${now.toLocaleDateString("en-GB")}  |  Time: ${now.toLocaleTimeString("en-GB")}`, mg+4, 27);
-      doc.text(`GPS Points: ${points.length}  |  Accuracy: ${gpsAccuracy ? `±${gpsAccuracy}m` : "N/A"}`, mg+4, 32);
-      let y = 42;
+      doc.text(`Mode: ${mode === "satellite" ? "Satellite" : "Normal"}`, mg+4, 33);
+      doc.text(`GPS Points: ${points.length}  |  Accuracy: ${gpsAccuracy ? `±${gpsAccuracy}m` : "N/A"}`, mg+4, 39);
+      let y = 50;
       doc.setTextColor(20,20,20); doc.setFontSize(11); doc.setFont("helvetica","bold");
       doc.text("LAND MEASUREMENTS", mg, y);
       doc.setDrawColor(99,102,241); doc.setLineWidth(0.4); doc.line(mg, y+2, pw-mg, y+2);
@@ -527,9 +936,9 @@ export default function LandMap() {
       doc.text("LAND BOUNDARY DIAGRAM", mg, y);
       doc.setDrawColor(99,102,241); doc.line(mg, y+2, pw-mg, y+2);
       y += 5;
-      const cnv = drawPolygonCanvas(points, 520, 360);
+      const mapCanvas = await renderMapSnapshot(mode, 520, 360) || drawPolygonCanvas(points, 520, 360, mode);
       const dW = pw-mg*2, dH = (360/520)*dW;
-      doc.addImage(cnv.toDataURL("image/png"), "PNG", mg, y, dW, dH);
+      doc.addImage(mapCanvas.toDataURL("image/png"), "PNG", mg, y, dW, dH);
       y += dH + 10;
       if (y < ph - 60) {
         doc.setFontSize(11); doc.setFont("helvetica","bold"); doc.setTextColor(20,20,20);
@@ -567,12 +976,15 @@ export default function LandMap() {
       }
       doc.setFillColor(10,15,30); doc.rect(0,ph-14,pw,14,"F");
       doc.setTextColor(100,100,140); doc.setFontSize(7.5); doc.setFont("helvetica","normal");
-      doc.text("Smart GPS Land Survey  •  Reference only. Consult a licensed surveyor for legal purposes.", mg, ph-5);
-      doc.save(`land-survey-${now.getFullYear()}${String(now.getMonth()+1).padStart(2,"0")}${String(now.getDate()).padStart(2,"0")}.pdf`);
+      doc.text("Smart GPS Land Survey  •  Developed by Januda J Kodithuwakku. Reference only. Consult a licensed surveyor for legal purposes.", mg, ph-5);
+      doc.save(`land-survey-${now.getFullYear()}${String(now.getMonth()+1).padStart(2,"0")}${String(now.getDate()).padStart(2,"0")}${mode === "satellite" ? "-satellite" : ""}.pdf`);
       setMsg("✓ PDF downloaded!");
     } catch (e) { setMsg("PDF error: " + e.message); }
     finally { setIsExporting(false); }
   };
+
+  const exportNormalPDF = () => exportPDF("normal");
+  const exportSatellitePDF = () => exportPDF("satellite");
 
   const accColor = gpsAccuracy
     ? parseFloat(gpsAccuracy) < 5  ? { bg:"rgba(34,197,94,0.15)", border:"rgba(34,197,94,0.3)", text:"#4ade80", label:"Excellent" }
@@ -730,6 +1142,66 @@ export default function LandMap() {
         transition: "opacity 0.2s",
         pointerEvents: sheetState === "peek" ? "none" : "auto",
       }}>
+        <div style={{ display: "grid", gap: 10, marginBottom: 10 }}>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <input
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              placeholder="Search place or address"
+              style={{
+                flex: 1,
+                minWidth: 0,
+                padding: "10px 12px",
+                borderRadius: 12,
+                border: "1px solid rgba(255,255,255,0.14)",
+                background: "rgba(255,255,255,0.08)",
+                color: "#fff",
+                fontSize: 13,
+              }}
+            />
+            <button
+              onClick={searchLocation}
+              disabled={isSearching}
+              style={{
+                padding: "10px 14px",
+                borderRadius: 12,
+                border: "none",
+                background: "linear-gradient(135deg,#0ea5e9,#3b82f6)",
+                color: "#fff",
+                fontSize: 12,
+                fontWeight: 700,
+                cursor: isSearching ? "not-allowed" : "pointer",
+              }}
+            >
+              {isSearching ? "Searching..." : "Search"}
+            </button>
+          </div>
+          {searchResults.length > 0 && (
+            <div style={{ maxHeight: 140, overflowY: "auto", background: "rgba(255,255,255,0.05)", borderRadius: 14, padding: 8, border: "1px solid rgba(255,255,255,0.12)" }}>
+              {searchResults.map((result, index) => (
+                <button
+                  key={`${result.place_id}-${index}`}
+                  onClick={() => goToLocation(result)}
+                  style={{
+                    width: "100%",
+                    textAlign: "left",
+                    marginBottom: 6,
+                    padding: "10px 12px",
+                    borderRadius: 10,
+                    border: "1px solid rgba(255,255,255,0.12)",
+                    background: "rgba(255,255,255,0.04)",
+                    color: "#fff",
+                    cursor: "pointer",
+                  }}
+                >
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#f8fafc" }}>{result.display_name}</div>
+                  <div style={{ fontSize: 11, color: "#cbd5e1", marginTop: 2 }}>{result.type}</div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
         {/* Quick actions always-visible row */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 7, marginBottom: 10, marginTop: 4 }}>
           <button onClick={addPoint} disabled={isCapturing} style={{
@@ -810,6 +1282,58 @@ export default function LandMap() {
           <StatCard label="Perimeter" value={perimeter.toFixed(1)+"m"} />
           <StatCard label="Points" value={points.length} />
           <StatCard label="Plots" value={plots.length} />
+        </div>
+
+        <div style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 14, padding: 12, marginBottom: 10 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "#fff" }}>Guided Waypoints</div>
+            <div style={{ fontSize: 11, color: "#94a3b8" }}>{points.length} points</div>
+          </div>
+          {points.length === 0 ? (
+            <div style={{ color: "#a5b4fc", fontSize: 12 }}>Add boundary points to build a guided waypoint list.</div>
+          ) : (
+            <div style={{ display: "grid", gap: 10 }}>
+              {points.map((pt, i) => {
+                const distanceToCurrent = currentLocation ? getDistanceMeters(currentLocation, pt) : null;
+                const nextPt = points[(i + 1) % points.length];
+                const segmentLength = points.length > 1 ? getSideLength(pt, nextPt).toFixed(1) : null;
+                const isSelectedPoint = navTarget?.plotIdx === activePlot && navTarget?.index === i;
+                return (
+                  <div key={i} style={{ background: isSelectedPoint ? "rgba(249,115,22,0.12)" : "rgba(255,255,255,0.04)", border: isSelectedPoint ? "1px solid rgba(249,115,22,0.4)" : "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: 10 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+                      <div>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: "#f8fafc" }}>P{i+1}</div>
+                        <div style={{ fontSize: 11, color: "#94a3b8" }}>Lat {pt[0].toFixed(6)} • Lng {pt[1].toFixed(6)}</div>
+                      </div>
+                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                        <button onClick={() => selectBoundaryPoint(activePlot, i, pt)} style={{ padding: "6px 10px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.12)", background: isSelectedPoint ? "#f97316" : "rgba(255,255,255,0.08)", color: isSelectedPoint ? "#fff" : "#e2e8f0", fontSize: 11, cursor: "pointer", fontWeight: 700 }}>
+                          {isSelectedPoint ? "Targeted" : "Target"}
+                        </button>
+                        <button onClick={() => startNavigationToPoint(activePlot, i)} style={{ padding: "6px 10px", borderRadius: 10, border: "none", background: "#10b981", color: "#fff", fontSize: 11, cursor: "pointer", fontWeight: 700 }}>
+                          Navigate
+                        </button>
+                        {splitMode && (
+                          <button onClick={() => toggleSplitPoint(i)} style={{ padding: "6px 10px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.12)", background: splitPoints.includes(i) ? "#f97316" : "rgba(255,255,255,0.08)", color: splitPoints.includes(i) ? "#fff" : "#e2e8f0", fontSize: 11, cursor: "pointer", fontWeight: 700 }}>
+                            {splitPoints.includes(i) ? "Picked" : "Split pt"}
+                          </button>
+                        )}
+                        {splitMode && (
+                          <button onClick={() => toggleSplitPoint(i)} style={{ padding: "6px 10px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.12)", background: splitPoints.includes(i) ? "#f97316" : "rgba(255,255,255,0.08)", color: splitPoints.includes(i) ? "#fff" : "#e2e8f0", fontSize: 11, cursor: "pointer", fontWeight: 700 }}>
+                            {splitPoints.includes(i) ? "Picked" : "Split pt"}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 8, fontSize: 11, color: "#cbd5e1" }}>
+                      <div>{distanceToCurrent != null ? `${distanceToCurrent.toFixed(1)}m from you` : "No GPS lock"}</div>
+                      {segmentLength && <div>Next segment {segmentLength}m</div>}
+                      {isSelectedPoint && <div style={{ color: "#fbbf24" }}>Current target</div>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         <Row2>
@@ -927,6 +1451,53 @@ export default function LandMap() {
           </div>
         ))}
         <Btn onClick={addPlot} color="#0f766e" full>＋ Add New Plot</Btn>
+        <Btn onClick={() => {
+            setSplitMode(prev => !prev);
+            if (splitMode) {
+              setSplitPoints([]);
+              setMsg("Manual division disabled.");
+            } else {
+              setMsg("Manual divide enabled. Pick two non-adjacent points in Survey or on the map.");
+            }
+          }}
+          color={splitMode ? "#f97316" : "#0ea5e9"}
+          full
+          style={{ marginTop: 10 }}>
+          🧩 Manual Divide
+        </Btn>
+        {splitMode && (
+          <div style={{ marginTop: 10, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 14, padding: 10 }}>
+            <div style={{ fontSize: 11, color: "#cbd5e1", marginBottom: 8 }}>
+              Select two non-adjacent boundary points to preview the split and compare section area/perimeter.
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+              <div style={{ flex: 1, minWidth: 120, fontSize: 11, color: "#fff", background: "rgba(255,255,255,0.04)", borderRadius: 10, padding: 8 }}>
+                Selected points: {splitPoints.length ? splitPoints.map(i => `P${i+1}`).join(" + ") : "none"}
+              </div>
+              <button onClick={cancelManualSplit} style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid rgba(249,115,22,0.5)", background: "rgba(249,115,22,0.1)", color: "#f97316", cursor: "pointer", fontSize: 11, fontWeight: 700 }}>
+                Cancel Split
+              </button>
+            </div>
+            {splitPreview ? (
+              <div style={{ display: "grid", gap: 8, marginBottom: 10 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#e2e8f0" }}>
+                  <span>Section A</span>
+                  <span>{splitPreview.sectionA.length} pts · {splitPreview.areaA.toFixed(1)} m² · {splitPreview.perimeterA.toFixed(1)} m</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#e2e8f0" }}>
+                  <span>Section B</span>
+                  <span>{splitPreview.sectionB.length} pts · {splitPreview.areaB.toFixed(1)} m² · {splitPreview.perimeterB.toFixed(1)} m</span>
+                </div>
+                <Btn onClick={applyManualSplit} color="#f97316" full>Apply Manual Split</Btn>
+              </div>
+            ) : splitPoints.length === 2 ? (
+              <div style={{ fontSize: 11, color: "#fca5a5" }}>Selected points are adjacent or invalid. Pick a different pair.</div>
+            ) : null}
+          </div>
+        )}
+        <Btn onClick={splitActivePlotIntoSections} disabled={points.length < 3} color={points.length < 3 ? "#1e293b" : "#f97316"} full style={{ marginTop: 10 }}>
+          🔀 Auto Split into Sections
+        </Btn>
         <SectionLabel>🎨 Plot Color</SectionLabel>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           {PLOT_COLORS.map(c => (
@@ -949,8 +1520,9 @@ export default function LandMap() {
         </Row2>
 
         <SectionLabel>Export</SectionLabel>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginBottom: 8 }}>
-          <Btn onClick={exportPDF} disabled={points.length < 3} color={points.length < 3 ? "#1e293b" : "#0f766e"} small>📄 PDF</Btn>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 6, marginBottom: 8 }}>
+          <Btn onClick={exportNormalPDF} disabled={points.length < 3} color={points.length < 3 ? "#1e293b" : "#0f766e"} small>📄 PDF</Btn>
+          <Btn onClick={exportSatellitePDF} disabled={points.length < 3} color={points.length < 3 ? "#1e293b" : "#0f766e"} small>🛰 Sat PDF</Btn>
           <Btn onClick={exportKML} disabled={points.length < 3} color={points.length < 3 ? "#1e293b" : "#7c3aed"} small>🌍 KML</Btn>
           <Btn onClick={exportGeoJSON} disabled={points.length < 3} color={points.length < 3 ? "#1e293b" : "#0e7490"} small>📋 JSON</Btn>
         </div>
@@ -987,19 +1559,79 @@ export default function LandMap() {
           <div style={{ fontSize: 9, color: "#555", letterSpacing: "0.12em", textTransform: "uppercase" }}>Smart GPS</div>
           <div style={{ fontSize: 17, fontWeight: 700 }}>Land Survey</div>
         </div>
-        <div style={{ display: "flex", gap: 5 }}>
-          {["normal","satellite"].map(t => (
-            <button key={t} onClick={() => setMapType(t)} style={{
-              padding: "4px 9px", fontSize: 11, fontWeight: 600,
-              background: mapType === t ? "#6366f1" : "rgba(255,255,255,0.07)",
-              color: mapType === t ? "#fff" : "#888",
-              border: mapType === t ? "1px solid #6366f1" : "1px solid rgba(255,255,255,0.1)",
-              borderRadius: 8, cursor: "pointer",
+        <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+          {MAP_STYLES.map(style => (
+            <button key={style.id} onClick={() => setMapType(style.id)} style={{
+              padding: "5px 11px", fontSize: 11, fontWeight: 700,
+              background: mapType === style.id ? style.accent : "rgba(255,255,255,0.08)",
+              color: mapType === style.id ? "#fff" : "#ccc",
+              border: mapType === style.id ? `1px solid ${style.accent}` : "1px solid rgba(255,255,255,0.16)",
+              borderRadius: 10, cursor: "pointer",
             }}>
-              {t === "normal" ? "🗺 Map" : "🛰 Sat"}
+              {style.label}
             </button>
           ))}
         </div>
+      </div>
+
+      <div style={{ marginBottom: 12, display: "grid", gap: 8 }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <input
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            placeholder="Search place or address"
+            style={{
+              flex: 1,
+              minWidth: 0,
+              padding: "10px 12px",
+              borderRadius: 12,
+              border: "1px solid rgba(255,255,255,0.14)",
+              background: "rgba(255,255,255,0.07)",
+              color: "#fff",
+              fontSize: 13,
+            }}
+          />
+          <button
+            onClick={searchLocation}
+            disabled={isSearching}
+            style={{
+              padding: "10px 14px",
+              borderRadius: 12,
+              border: "none",
+              background: "linear-gradient(135deg,#0ea5e9,#3b82f6)",
+              color: "#fff",
+              fontSize: 12,
+              fontWeight: 700,
+              cursor: isSearching ? "not-allowed" : "pointer",
+            }}
+          >
+            {isSearching ? "Searching..." : "Search"}
+          </button>
+        </div>
+        {searchResults.length > 0 && (
+          <div style={{ maxHeight: 180, overflowY: "auto", background: "rgba(255,255,255,0.08)", borderRadius: 14, padding: 8, border: "1px solid rgba(255,255,255,0.12)" }}>
+            {searchResults.map((result, index) => (
+              <button
+                key={`${result.place_id}-${index}`}
+                onClick={() => goToLocation(result)}
+                style={{
+                  width: "100%",
+                  textAlign: "left",
+                  marginBottom: 6,
+                  padding: "10px 12px",
+                  borderRadius: 10,
+                  border: "1px solid rgba(255,255,255,0.12)",
+                  background: "rgba(255,255,255,0.04)",
+                  color: "#edf2ff",
+                  cursor: "pointer",
+                }}
+              >
+                <div style={{ fontSize: 12, fontWeight: 700, color: "#f8fafc" }}>{result.display_name}</div>
+                <div style={{ fontSize: 11, color: "#cbd5e1", marginTop: 2 }}>{result.type}</div>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {accColor && (
@@ -1010,6 +1642,13 @@ export default function LandMap() {
       {status && (
         <div style={{ background: "rgba(99,102,241,0.18)", border: "1px solid rgba(99,102,241,0.3)", borderRadius: 8, padding: "5px 10px", marginBottom: 8, fontSize: 11, color: "#a5b4fc" }}>
           {status}
+        </div>
+      )}
+      {navigationActive && navTarget != null && (
+        <div style={{ background: "rgba(248,208,122,0.15)", border: "1px solid rgba(245,158,11,0.3)", borderRadius: 8, padding: "6px 10px", marginBottom: 8, color: "#92400e", fontSize: 11 }}>
+          <div style={{ fontWeight: 700, marginBottom: 4 }}>🚶‍♂️ Navigation Active</div>
+          <div>P{navTarget.index + 1} target • {navDistance != null ? `${navDistance.toFixed(1)}m` : "calibrating..."}</div>
+          <button onClick={stopNavigation} style={{ marginTop: 8, width: "100%", padding: "8px", borderRadius: 8, border: "none", background: "#f97316", color: "#fff", cursor: "pointer", fontSize: 11, fontWeight: 700 }}>Stop Navigation</button>
         </div>
       )}
       {isCapturing && (
@@ -1064,16 +1703,16 @@ export default function LandMap() {
     }}>
       {/* Map type toggle (mobile only — desktop has it in sidebar) */}
       {isMobile && (
-        <div style={{ display: "flex", gap: 5 }}>
-          {["normal","satellite"].map(t => (
-            <button key={t} onClick={() => setMapType(t)} style={{
+        <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+          {MAP_STYLES.map(style => (
+            <button key={style.id} onClick={() => setMapType(style.id)} style={{
               padding: "7px 10px", fontSize: 11, fontWeight: 600,
-              background: mapType === t ? "rgba(99,102,241,0.9)" : "rgba(8,10,20,0.75)",
-              color: mapType === t ? "#fff" : "#aaa",
-              border: "1px solid rgba(255,255,255,0.12)",
+              background: mapType === style.id ? style.accent : "rgba(8,10,20,0.75)",
+              color: mapType === style.id ? "#fff" : "#ddd",
+              border: mapType === style.id ? `1px solid ${style.accent}` : "1px solid rgba(255,255,255,0.12)",
               borderRadius: 9, cursor: "pointer", backdropFilter: "blur(8px)",
             }}>
-              {t === "normal" ? "🗺" : "🛰"}
+              {style.label}
             </button>
           ))}
         </div>
@@ -1118,8 +1757,13 @@ export default function LandMap() {
         zoom={18}
         style={{ height: "100dvh", width: "100%" }}
         zoomControl={!isMobile}
+        whenCreated={(map) => { mapRef.current = map; }}
       >
-        <TileLayer attribution="Map data" url={mapType === "normal" ? normalMap : satelliteMap} />
+        <TileLayer
+          attribution="Map data"
+          url={mapType === "normal" ? normalMap : satelliteMap}
+          crossOrigin="anonymous"
+        />
         <MapClickHandler mode={mapMode} setPoints={setPoints} setDistPoints={setDistPoints} />
         {/* Only flies to location when Locate button is pressed — NOT on every point add */}
         <MapFlyTo flyTrigger={flyTrigger} location={currentLocation} />
@@ -1137,6 +1781,12 @@ export default function LandMap() {
             </Popup>
           </Marker>
         )}
+        {navigationActive && navTarget?.coords && currentLocation && (
+          <Polyline positions={[currentLocation, navTarget.coords]} color="#f97316" weight={3} dashArray="8,6" />
+        )}
+        {splitMode && splitPreview && splitPoints.length === 2 && (
+          <Polyline positions={[points[splitPreview.indices[0]], points[splitPreview.indices[1]]]} color="#f97316" weight={4} dashArray="6,4" />
+        )}
 
         {/* All plots */}
         {plots.map((plot, plotIdx) => {
@@ -1147,11 +1797,12 @@ export default function LandMap() {
             const bear = pts.length > 1 ? getBearing(pt, nextPt) : null;
             const sideToNext = pts.length > 1 ? getSideLength(pt, nextPt).toFixed(2) : null;
             const elev = elevations[i];
+            const isSelectedPoint = navTarget?.plotIdx === plotIdx && navTarget?.index === i;
             return (
               <Marker
                 key={`${plot.id}-${i}`}
                 position={pt}
-                icon={makeNumberedIcon(i+1, plot.color)}
+                icon={makeNumberedIcon(i+1, isSelectedPoint ? "#f97316" : plot.color)}
                 draggable={isActive}
                 eventHandlers={isActive ? { dragend: (e) => handleMarkerDrag(i, e) } : {}}
               >
@@ -1169,6 +1820,21 @@ export default function LandMap() {
                     {bear && showBearings && (
                       <div style={{ color: "#a78bfa", marginTop: 2, fontWeight: 600 }}>⬆ {bear.compass} {bear.deg}°</div>
                     )}
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 5, marginTop: 8 }}>
+                      <button onClick={() => { selectBoundaryPoint(plotIdx, i, pt); setMsg(`Boundary point P${i+1} targeted.`); }} style={{
+                        padding: "6px 8px", background: isSelectedPoint ? "#f97316" : "rgba(99,102,241,0.12)",
+                        color: isSelectedPoint ? "#fff" : "#dbeafe", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 8,
+                        cursor: "pointer", fontSize: 10, fontWeight: 700,
+                      }}>
+                        {isSelectedPoint ? "Targeted" : "Target"}
+                      </button>
+                      <button onClick={() => startNavigationToPoint(plotIdx, i)} style={{
+                        padding: "6px 8px", background: "#10b981", color: "#fff", border: "none", borderRadius: 8,
+                        cursor: "pointer", fontSize: 10, fontWeight: 700,
+                      }}>
+                        Navigate
+                      </button>
+                    </div>
                     {isActive && (
                       <button onClick={() => setPoints(prev => prev.filter((_,idx) => idx !== i))} style={{
                         marginTop: 6, width: "100%", padding: "5px",
