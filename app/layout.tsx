@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import Script from "next/script";
 import "./globals.css";
 
 import NavBar from "./src/components/NavBar";
@@ -83,7 +84,6 @@ export const metadata: Metadata = {
     },
   },
 
-  // ── Icons — using your actual /public/icons/ files ────────────────────────
   icons: {
     icon: [
       { url: "/icons/favicon.ico" },
@@ -145,6 +145,9 @@ export const metadata: Metadata = {
   manifest: "/icons/site.webmanifest",
 };
 
+// ─── GA Measurement ID ────────────────────────────────────────────────────────
+const GA_ID = "G-0M0BWFLLDD";
+
 // ─── Root Layout ──────────────────────────────────────────────────────────────
 export default function RootLayout({
   children,
@@ -157,7 +160,7 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <head>
-        {/* ── JSON-LD Structured Data ────────────────────────────────────── */}
+        {/* ── JSON-LD Structured Data (LocalBusiness) ───────────────────── */}
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{
@@ -212,13 +215,16 @@ export default function RootLayout({
           }}
         />
 
-        {/* ── Preconnect for font performance ───────────────────────────── */}
+        {/* ── Preconnect for performance ─────────────────────────────────── */}
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link
           rel="preconnect"
           href="https://fonts.gstatic.com"
           crossOrigin="anonymous"
         />
+        {/* Preconnect to Google Analytics domains for faster script load */}
+        <link rel="preconnect" href="https://www.googletagmanager.com" />
+        <link rel="dns-prefetch" href="https://www.google-analytics.com" />
       </head>
 
       <body className="min-h-full flex flex-col">
@@ -229,6 +235,24 @@ export default function RootLayout({
         </main>
 
         <Footer />
+
+        {/* ── Google Analytics 4 ────────────────────────────────────────────
+            strategy="afterInteractive" loads GA only after the page is
+            interactive — doesn't block rendering or hurt Core Web Vitals.   */}
+        <Script
+          src={`https://www.googletagmanager.com/gtag/js?id=${GA_ID}`}
+          strategy="afterInteractive"
+        />
+        <Script id="google-analytics" strategy="afterInteractive">
+          {`
+            window.dataLayer = window.dataLayer || [];
+            function gtag(){dataLayer.push(arguments);}
+            gtag('js', new Date());
+            gtag('config', '${GA_ID}', {
+              page_path: window.location.pathname,
+            });
+          `}
+        </Script>
       </body>
     </html>
   );
