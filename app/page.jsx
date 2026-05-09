@@ -1,11 +1,10 @@
 "use client";
 
-import Link from "next/link";
-
 import HeroHeader from "./src/pages/Header";
 import Service from "./src/components/Services";
 import Ft from "./src/components/ft";
 import Industry from "./src/components/industry";
+import ContactSection from "./src/components/Contactsection";
 
 export default function Home() {
   return (
@@ -17,7 +16,7 @@ export default function Home() {
       </section>
 
       {/* Services */}
-      <section className="mt-10">
+      <section id="services" className="mt-10">
         <Service />
       </section>
 
@@ -31,7 +30,7 @@ export default function Home() {
         <Industry />
       </section>
 
-      {/* Land Map Button */}
+      {/* Contact Section */}
       
 
     </main>

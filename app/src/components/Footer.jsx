@@ -484,7 +484,7 @@ export default function Footer() {
 
             {/* Brand */}
             <div className="footer__brand">
-              <Link href="/" className="footer__logo" aria-label="Januda J Kodithuwakku — Home">
+              <Link href="/" className="footer__logo" aria-label="GeoLogicX — Home">
                 <span className="footer__logo-mark">GeoLogicX</span>
                 <span className="footer__logo-sub"></span>
               </Link>
@@ -585,8 +585,7 @@ export default function Footer() {
         <div className="footer__bottom">
           <div className="footer__bottom-inner">
             <p className="footer__copy">
-              © {new Date().getFullYear()} <span>GeoLogicX
-</span>. All rights reserved.
+              © {new Date().getFullYear()} <span>GeoLogicX</span>. All rights reserved.
               Project, Idea &amp; Design by <a href="https://kjanuda.netlify.app/" target="_blank" rel="noreferrer" className="footer__contact-label">Januda J</a>
             </p>
             <ul className="footer__legal" role="list">

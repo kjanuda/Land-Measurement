@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 
 const metrics = [
   { val: "3.1M",  label: "Parcels indexed" },
@@ -41,15 +42,13 @@ export default function LandSurveyHero() {
           overflow: hidden;
           min-height: 240px;
         }
-        .hero-photo-bg {
-          position: absolute;
-          inset: 0;
-          background: url('https://images.unsplash.com/photo-1559827260-dc66d52bef19?w=1000&q=85')
-            center / cover no-repeat;
+        .hero-photo-img {
+          object-fit: cover;
+          object-position: center;
           transform: scale(1.04);
           transition: transform 9s ease;
         }
-        .hero-section:hover .hero-photo-bg {
+        .hero-section:hover .hero-photo-img {
           transform: scale(1.0);
         }
         .hero-photo-overlay {
@@ -61,10 +60,12 @@ export default function LandSurveyHero() {
             rgba(8,18,40,0.32) 55%,
             rgba(8,18,40,0.52) 100%
           );
+          z-index: 1;
         }
         .hero-grid-lines {
           position: absolute;
           inset: 0;
+          z-index: 2;
           opacity: 0.07;
           background-image:
             linear-gradient(rgba(255,255,255,1) 1px, transparent 1px),
@@ -77,6 +78,7 @@ export default function LandSurveyHero() {
           position: absolute;
           top: 16px;
           left: 16px;
+          z-index: 3;
           display: flex;
           align-items: center;
           gap: 7px;
@@ -110,6 +112,7 @@ export default function LandSurveyHero() {
           top: 40%;
           left: 50%;
           transform: translate(-50%, -50%);
+          z-index: 3;
         }
         .pin-ripple {
           position: absolute;
@@ -148,6 +151,7 @@ export default function LandSurveyHero() {
           position: absolute;
           bottom: 14px;
           left: 14px;
+          z-index: 3;
           font-family: 'DM Mono', monospace;
           font-size: 9px;
           color: rgba(255,255,255,0.35);
@@ -276,7 +280,7 @@ export default function LandSurveyHero() {
           color: #d1d5db;
         }
 
-        /* Outer label strip */
+        /* Footer strip */
         .hero-footer {
           display: flex;
           align-items: center;
@@ -332,14 +336,19 @@ export default function LandSurveyHero() {
         }
       `}</style>
 
-      {/* Outer container — light gray bg */}
       <div className="hero-wrap">
-
         <section className="hero-section">
 
-          {/* Left — photo */}
+          {/* Left — local image from /public/cp.jpg */}
           <div className="hero-photo">
-            <div className="hero-photo-bg" />
+            <Image
+              src="/cp1.webp"
+              alt="Land survey aerial view"
+              fill
+              priority
+              className="hero-photo-img"
+              sizes="(max-width: 640px) 100vw, 50vw"
+            />
             <div className="hero-photo-overlay" />
             <div className="hero-grid-lines" />
 
@@ -363,7 +372,7 @@ export default function LandSurveyHero() {
             </div>
           </div>
 
-          {/* Right — content on white */}
+          {/* Right — content */}
           <div className="hero-content">
             <div>
               <p className="hero-eyebrow">Land survey platform</p>
@@ -419,7 +428,6 @@ export default function LandSurveyHero() {
 
         </section>
 
-        {/* Footer strip inside gray wrapper */}
         <div className="hero-footer">
           <span className="hero-footer-tag">v2.4.1 · GIS Engine</span>
           <div className="hero-footer-badge">
@@ -427,7 +435,6 @@ export default function LandSurveyHero() {
             Data sync active
           </div>
         </div>
-
       </div>
     </>
   );

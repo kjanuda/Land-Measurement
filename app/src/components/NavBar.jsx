@@ -8,7 +8,7 @@ const NAV_LINKS = [
   { label: "Projects",   href: "#projects"   },
   { label: "About",      href: "#about"      },
   { label: "Technology", href: "#technology" },
-  { label: "Contact",    href: "#contact"    },
+  { label: "Contact",    href: "contact"    },
 ];
 
 export default function Navbar() {
@@ -405,7 +405,7 @@ export default function Navbar() {
           </ul>
 
           {/* CTA + Burger */}
-          <Link href="#contact" className="nav__cta">
+          <Link href="contact" className="nav__cta">
             Request Survey
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
               <path d="M1.5 6h9M7 2.5l3.5 3.5L7 9.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
@@ -449,7 +449,7 @@ export default function Navbar() {
         </ul>
 
         <div className="nav__mobile-cta">
-          <Link href="#contact" onClick={() => setMenuOpen(false)}>
+          <Link href="contact" onClick={() => setMenuOpen(false)}>
             Request a Survey
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
               <path d="M2 7h10M8 3l4 4-4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
