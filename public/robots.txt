@@ -1,0 +1,9 @@
+# *
+User-agent: *
+Allow: /
+
+# Host
+Host: https://geologicx.netlify.app
+
+# Sitemaps
+Sitemap: https://geologicx.netlify.app/sitemap.xml
