@@ -8,7 +8,7 @@ import Footer from "./src/components/Footer";
 const geistSans = Geist({
   variable: "--font-geist-sans",
   subsets: ["latin", "latin-ext"],
-  display: "swap", // prevents invisible text during font load (CLS fix)
+  display: "swap",
 });
 
 const geistMono = Geist_Mono({
@@ -17,7 +17,7 @@ const geistMono = Geist_Mono({
   display: "swap",
 });
 
-// ─── Viewport (separated from metadata — Next.js 14+ best practice) ──────────
+// ─── Viewport ─────────────────────────────────────────────────────────────────
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
@@ -29,20 +29,16 @@ export const viewport: Viewport = {
 
 // ─── Metadata ─────────────────────────────────────────────────────────────────
 export const metadata: Metadata = {
-  // Base URL for resolving relative image/asset paths in metadata
   metadataBase: new URL("https://geologicx.netlify.app"),
 
-  // ── Titles ──────────────────────────────────────────────────────────────────
   title: {
     default: "GeoLogicX | Land Surveying & GIS Solutions Sri Lanka",
     template: "%s | GeoLogicX",
   },
 
-  // ── Core description (keep 150–160 chars for Google snippets) ───────────────
   description:
     "GeoLogicX is Sri Lanka's leading land surveying and geospatial technology company. We offer GPS land measurement, GIS mapping, satellite mapping, and digital survey solutions across Hambantota and Southern Province.",
 
-  // ── Keywords (supplementary — not a ranking factor, but good for context) ───
   keywords: [
     "GeoLogicX",
     "Land Survey Sri Lanka",
@@ -64,22 +60,17 @@ export const metadata: Metadata = {
     "Topographic Survey",
   ],
 
-  // ── Authorship ───────────────────────────────────────────────────────────────
   authors: [{ name: "Januda J Kodithuwakku" }],
   creator: "Januda J Kodithuwakku",
   publisher: "GeoLogicX",
 
-  // ── Canonical URL (prevents duplicate content penalty) ───────────────────────
   alternates: {
     canonical: "https://geologicx.netlify.app",
     languages: {
       "en-US": "https://geologicx.netlify.app",
-      // Add Sinhala/Tamil alternates here when ready:
-      // "si": "https://geologicx.netlify.app/si",
     },
   },
 
-  // ── Robots ───────────────────────────────────────────────────────────────────
   robots: {
     index: true,
     follow: true,
@@ -88,29 +79,28 @@ export const metadata: Metadata = {
       follow: true,
       "max-video-preview": -1,
       "max-image-preview": "large",
-      "max-snippet": -1, // allows Google to show full snippets
+      "max-snippet": -1,
     },
   },
 
-  // ── Icons ────────────────────────────────────────────────────────────────────
+  // ── Icons — using your actual /public/icons/ files ────────────────────────
   icons: {
     icon: [
-      { url: "/favicon.ico" },
-      { url: "/favicon-16x16.png", sizes: "16x16", type: "image/png" },
-      { url: "/favicon-32x32.png", sizes: "32x32", type: "image/png" },
+      { url: "/icons/favicon.ico" },
+      { url: "/icons/favicon-96x96.png", sizes: "96x96", type: "image/png" },
+      { url: "/icons/favicon.svg", type: "image/svg+xml" },
     ],
     apple: [
-      { url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" },
+      { url: "/icons/apple-touch-icon.png", sizes: "180x180", type: "image/png" },
     ],
     other: [
       {
         rel: "mask-icon",
-        url: "/safari-pinned-tab.svg",
+        url: "/icons/favicon.svg",
       },
     ],
   },
 
-  // ── Open Graph (Facebook, LinkedIn, WhatsApp previews) ───────────────────────
   openGraph: {
     title: "GeoLogicX | Land Surveying & GIS Solutions Sri Lanka",
     description:
@@ -130,7 +120,6 @@ export const metadata: Metadata = {
     ],
   },
 
-  // ── Twitter / X Card ─────────────────────────────────────────────────────────
   twitter: {
     card: "summary_large_image",
     title: "GeoLogicX | Land Surveying & GIS Solutions Sri Lanka",
@@ -142,28 +131,18 @@ export const metadata: Metadata = {
         alt: "GeoLogicX – Land Surveying & GIS Solutions Sri Lanka",
       },
     ],
-    // Add your Twitter/X handle when you have one:
     // site: "@geologicx",
     // creator: "@januda_j",
   },
 
-  // ── Google Search Console verification ───────────────────────────────────────
-  // Use the token string only — no .html extension
   verification: {
     google: "google01a98f4cbe16d4f9",
-    // Add Bing when you verify on Bing Webmaster Tools:
-    // other: { "msvalidate.01": "YOUR_BING_TOKEN" },
   },
 
-  // ── App / PWA metadata ───────────────────────────────────────────────────────
   applicationName: "GeoLogicX",
   category: "technology",
   referrer: "origin-when-cross-origin",
-
-  // ── Manifest (create /public/site.webmanifest for PWA support) ──────────────
-  manifest: "/site.webmanifest",
-
-  // ── Structured data hint (add JSON-LD separately in page.tsx — see below) ───
+  manifest: "/icons/site.webmanifest",
 };
 
 // ─── Root Layout ──────────────────────────────────────────────────────────────
@@ -178,9 +157,7 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <head>
-        {/* ── JSON-LD Structured Data (LocalBusiness schema) ─────────────────
-            Helps Google show rich results: address, phone, map, reviews, etc.
-            Move this to individual page.tsx files for page-specific schemas.  */}
+        {/* ── JSON-LD Structured Data ────────────────────────────────────── */}
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{
@@ -192,7 +169,7 @@ export default function RootLayout({
               description:
                 "Sri Lanka's leading GPS land surveying and GIS mapping company serving Hambantota and Southern Province.",
               url: "https://geologicx.netlify.app",
-              logo: "https://geologicx.netlify.app/logo.png",
+              logo: "https://geologicx.netlify.app/icons/favicon.svg",
               image: "https://geologicx.netlify.app/banner.jpg",
               founder: {
                 "@type": "Person",
@@ -206,7 +183,6 @@ export default function RootLayout({
               },
               geo: {
                 "@type": "GeoCoordinates",
-                // ⚠️ Replace with your actual coordinates:
                 latitude: "6.0367",
                 longitude: "80.7214",
               },
@@ -229,7 +205,6 @@ export default function RootLayout({
                 "Digital Survey Solutions",
               ],
               sameAs: [
-                // Add your social profile URLs here:
                 // "https://www.facebook.com/geologicx",
                 // "https://www.linkedin.com/company/geologicx",
               ],
@@ -237,7 +212,7 @@ export default function RootLayout({
           }}
         />
 
-        {/* ── Preconnect for performance (improves LCP & FID) ─────────────── */}
+        {/* ── Preconnect for font performance ───────────────────────────── */}
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link
           rel="preconnect"
