@@ -15,6 +15,9 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "GeoLogicX",
   description: "Local geospatial consulting, survey design and project strategy for clients across Hambantota and the Asia-Pacific region.",
+  icons: {
+    icon: "/vercel.svg",
+  },
 };
 
 import NavBar from "./src/components/NavBar";
