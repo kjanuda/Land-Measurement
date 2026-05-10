@@ -4,12 +4,19 @@ import {
   MapContainer, TileLayer, Marker, Polyline, Polygon,
   Popup, useMapEvents, useMap, Circle,
 } from "react-leaflet";
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import * as turf from "@turf/turf";
 import "leaflet/dist/leaflet.css";
 import "leaflet-defaulticon-compatibility";
 import "leaflet-defaulticon-compatibility/dist/leaflet-defaulticon-compatibility.css";
 import L from "leaflet";
+
+// ─── FIX #1: MapRefSetter replaces whenCreated (not valid in react-leaflet v3+)
+function MapRefSetter({ mapRef }) {
+  const map = useMap();
+  useEffect(() => { mapRef.current = map; }, [map]);
+  return null;
+}
 
 // ─── Responsive hook ──────────────────────────────────────────────────────────
 function useIsMobile() {
@@ -24,7 +31,6 @@ function useIsMobile() {
 }
 
 // ─── Map helpers ──────────────────────────────────────────────────────────────
-// flyTrigger = { count, zoom } — only count changing causes a fly.
 function MapFlyTo({ flyTrigger, location }) {
   const map = useMap();
   useEffect(() => {
@@ -238,6 +244,7 @@ export default function LandMap() {
   const [autoActive, setAutoActive] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const lastAutoPoint = useRef(null);
+  // FIX #1: mapRef now populated via MapRefSetter, not whenCreated
   const mapRef = useRef(null);
 
   const lonToWorldX = (lon, z) => ((lon + 180) / 360) * Math.pow(2, z) * 256;
@@ -396,13 +403,9 @@ export default function LandMap() {
   };
 
   // ── Sheet state (mobile bottom drawer) ───────────────────────────────────────
-  // "peek"  = 120px   → just the handle + quick actions visible
-  // "half"  = 45vh    → main stats + primary button
-  // "full"  = 85vh    → full panel
-  const [sheetState, setSheetState] = useState("peek"); // peek | half | full
+  const [sheetState, setSheetState] = useState("peek");
   const sheetRef = useRef(null);
   const dragStartY = useRef(null);
-  const dragStartState = useRef(null);
 
   // ── Feature state ─────────────────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState("survey");
@@ -446,24 +449,30 @@ export default function LandMap() {
     prev.map((p, i) => i === activePlot ? { ...p, points: typeof fn === "function" ? fn(p.points) : fn } : p)
   );
 
-  // ── Calculations ──────────────────────────────────────────────────────────────
-  const calcArea = (pts = points) => {
+  // ── FIX #5: Memoize heavy calculations ───────────────────────────────────────
+  const calcArea = useCallback((pts = points) => {
     if (pts.length < 3) return 0;
     try { return turf.area(turf.polygon([[...pts.map(p => [p[1], p[0]]), [pts[0][1], pts[0][0]]]])); }
     catch { return 0; }
-  };
-  const calcPerimeter = (pts = points) => {
+  }, []); // eslint-disable-line
+
+  const calcPerimeter = useCallback((pts = points) => {
     if (pts.length < 2) return 0;
     let t = 0;
     for (let i = 0; i < pts.length; i++) t += getSideLength(pts[i], pts[(i+1) % pts.length]);
     return t;
-  };
-  const area = calcArea();
-  const perimeter = calcPerimeter();
-  const perch = area / 25.29;
-  const acres = area / 4046.86;
-  const centroid = getCentroid(points);
-  const splitPreview = splitPoints.length === 2 ? getSplitPreview(points, splitPoints[0], splitPoints[1]) : null;
+  }, []); // eslint-disable-line
+
+  const area = useMemo(() => calcArea(points), [points]); // eslint-disable-line
+  const perimeter = useMemo(() => calcPerimeter(points), [points]); // eslint-disable-line
+  const perch = useMemo(() => area / 25.29, [area]);
+  const acres = useMemo(() => area / 4046.86, [area]);
+  const centroid = useMemo(() => getCentroid(points), [points]); // eslint-disable-line
+
+  const splitPreview = useMemo(
+    () => splitPoints.length === 2 ? getSplitPreview(points, splitPoints[0], splitPoints[1]) : null,
+    [points, splitPoints] // eslint-disable-line
+  );
 
   // ── Load saved ────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -487,18 +496,15 @@ export default function LandMap() {
   // ── Touch drag sheet ──────────────────────────────────────────────────────────
   const handleTouchStart = (e) => {
     dragStartY.current = e.touches[0].clientY;
-    dragStartState.current = sheetState;
   };
   const handleTouchEnd = (e) => {
     if (dragStartY.current === null) return;
     const dy = dragStartY.current - e.changedTouches[0].clientY;
-    if (Math.abs(dy) < 20) return; // ignore tiny taps
+    if (Math.abs(dy) < 20) return;
     if (dy > 40) {
-      // swipe up → expand
       if (sheetState === "peek") setSheetState("half");
       else if (sheetState === "half") setSheetState("full");
     } else if (dy < -40) {
-      // swipe down → collapse
       if (sheetState === "full") setSheetState("half");
       else if (sheetState === "half") setSheetState("peek");
     }
@@ -519,8 +525,8 @@ export default function LandMap() {
       setPoints(prev => [...prev, np]);
       setCurrentLocation(np);
       setGpsAccuracy(r.accuracy.toFixed(1));
-      setMapType("satellite"); // ensure satellite view
-      setFlyTrigger({ count: Date.now(), zoom: 21 }); // zoom in close so point is clearly visible
+      setMapType("satellite");
+      setFlyTrigger({ count: Date.now(), zoom: 21 });
       setMsg(`✓ Point added! ±${r.accuracy.toFixed(1)}m`);
     } catch { setMsg("GPS error — permission check කරන්න."); }
     finally { setIsCapturing(false); setCaptureProgress(0); }
@@ -559,14 +565,13 @@ export default function LandMap() {
     finally { setIsCapturing(false); setCaptureProgress(0); }
   };
 
-  // "Locate me" — flies the map to current position
   const getLocation = () => {
     navigator.geolocation.getCurrentPosition(
       (p) => {
         const loc = [p.coords.latitude, p.coords.longitude];
         setCurrentLocation(loc);
         setGpsAccuracy(p.coords.accuracy.toFixed(1));
-        setFlyTrigger({ count: Date.now(), zoom: 19 }); // triggers MapFlyTo
+        setFlyTrigger({ count: Date.now(), zoom: 19 });
         setMsg("Location updated", 2000);
       },
       null, { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
@@ -648,36 +653,24 @@ export default function LandMap() {
   };
 
   const searchLocation = async () => {
-    if (!searchQuery.trim()) {
-      setMsg("Enter a location, address, or landmark.");
-      return;
-    }
-    setIsSearching(true);
-    setMsg("Searching location...");
+    if (!searchQuery.trim()) { setMsg("Enter a location, address, or landmark."); return; }
+    setIsSearching(true); setMsg("Searching location...");
     try {
       const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(searchQuery)}&format=json&limit=5`);
       const data = await res.json();
       setSearchResults(Array.isArray(data) ? data : []);
-      if (!data || data.length === 0) {
-        setMsg("No matches found.");
-      } else {
-        setMsg(`Found ${data.length} location${data.length === 1 ? "" : "s"}.`);
-      }
-    } catch (error) {
+      if (!data || data.length === 0) setMsg("No matches found.");
+      else setMsg(`Found ${data.length} location${data.length === 1 ? "" : "s"}.`);
+    } catch {
       setMsg("Search failed — check your connection.");
       setSearchResults([]);
-    } finally {
-      setIsSearching(false);
-    }
+    } finally { setIsSearching(false); }
   };
 
   const goToLocation = (result) => {
     const lat = parseFloat(result.lat);
     const lon = parseFloat(result.lon);
-    if (Number.isNaN(lat) || Number.isNaN(lon)) {
-      setMsg("Invalid location result.");
-      return;
-    }
+    if (Number.isNaN(lat) || Number.isNaN(lon)) { setMsg("Invalid location result."); return; }
     const loc = [lat, lon];
     setCurrentLocation(loc);
     setFlyTrigger({ count: Date.now(), zoom: 18 });
@@ -688,28 +681,17 @@ export default function LandMap() {
   };
 
   const stopNavigation = (silent = false) => {
-    if (navWatchId !== null) {
-      navigator.geolocation.clearWatch(navWatchId);
-      setNavWatchId(null);
-    }
-    setNavigationActive(false);
-    setNavDistance(null);
-    setArrivalNotified(false);
+    if (navWatchId !== null) { navigator.geolocation.clearWatch(navWatchId); setNavWatchId(null); }
+    setNavigationActive(false); setNavDistance(null); setArrivalNotified(false);
     if (!silent) setMsg("Navigation stopped.");
   };
 
   const monitorTargetArrival = (plotIdx, index, target, enableNav = false) => {
-    if (!navigator.geolocation) {
-      setMsg("GPS unavailable in this browser.");
-      return;
-    }
+    if (!navigator.geolocation) { setMsg("GPS unavailable in this browser."); return; }
     stopNavigation(true);
     setNavTarget({ plotIdx, index, coords: target });
-    setArrivalNotified(false);
-    setNavigationActive(enableNav);
-    setNavDistance(null);
-    setMsg(enableNav ? `Navigation started to P${index + 1}...` : `Target P${index + 1} selected. Walk to it to trigger arrival alert.`);
-
+    setArrivalNotified(false); setNavigationActive(enableNav); setNavDistance(null);
+    setMsg(enableNav ? `Navigation started to P${index + 1}...` : `Target P${index + 1} selected.`);
     let arrivalTriggered = false;
     const id = navigator.geolocation.watchPosition(
       (pos) => {
@@ -720,17 +702,12 @@ export default function LandMap() {
         if (distance <= 8 && !arrivalTriggered) {
           arrivalTriggered = true;
           navigator.geolocation.clearWatch(id);
-          setNavWatchId(null);
-          setNavigationActive(false);
-          setArrivalNotified(true);
-          setNavDistance(distance);
+          setNavWatchId(null); setNavigationActive(false); setArrivalNotified(true); setNavDistance(distance);
           setMsg(`Arrived at boundary point P${index + 1}!`, 5000);
           window.alert(`Arrived at boundary point P${index + 1}!`);
         }
       },
-      (err) => {
-        setMsg("Navigation error: " + err.message);
-      },
+      (err) => setMsg("Navigation error: " + err.message),
       { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
     );
     setNavWatchId(id);
@@ -738,10 +715,7 @@ export default function LandMap() {
 
   const startNavigationToPoint = (plotIdx, index) => {
     const plot = plots[plotIdx];
-    if (!plot || !plot.points[index]) {
-      setMsg("Point not found.");
-      return;
-    }
+    if (!plot || !plot.points[index]) { setMsg("Point not found."); return; }
     monitorTargetArrival(plotIdx, index, plot.points[index], true);
   };
 
@@ -750,10 +724,7 @@ export default function LandMap() {
   };
 
   const splitActivePlotIntoSections = () => {
-    if (points.length < 3) {
-      setMsg("Plot must have at least 3 points to split.");
-      return;
-    }
+    if (points.length < 3) { setMsg("Plot must have at least 3 points to split."); return; }
     const poly = turf.polygon([[...points.map(p => [p[1], p[0]]), [points[0][1], points[0][0]]]]);
     const centroidFeature = turf.centroid(poly);
     const centroidCoords = [centroidFeature.geometry.coordinates[1], centroidFeature.geometry.coordinates[0]];
@@ -766,12 +737,7 @@ export default function LandMap() {
         points: [centroidCoords, point, nextPoint],
       };
     });
-
-    setPlots(prev => {
-      const next = [...prev];
-      next.splice(activePlot, 1, ...sectionPlots);
-      return next;
-    });
+    setPlots(prev => { const next = [...prev]; next.splice(activePlot, 1, ...sectionPlots); return next; });
     setActivePlot(activePlot);
     setMsg(`Split ${curPlot.name} into ${sectionPlots.length} sections.`);
   };
@@ -789,12 +755,9 @@ export default function LandMap() {
     const polygonA = turf.polygon([[...sectionA.map(p => [p[1], p[0]]), [sectionA[0][1], sectionA[0][0]]]]);
     const polygonB = turf.polygon([[...sectionB.map(p => [p[1], p[0]]), [sectionB[0][1], sectionB[0][0]]]]);
     return {
-      sectionA,
-      sectionB,
-      areaA: turf.area(polygonA),
-      areaB: turf.area(polygonB),
-      perimeterA: calcPerimeter(sectionA),
-      perimeterB: calcPerimeter(sectionB),
+      sectionA, sectionB,
+      areaA: turf.area(polygonA), areaB: turf.area(polygonB),
+      perimeterA: calcPerimeter(sectionA), perimeterB: calcPerimeter(sectionB),
       indices: [a, b],
     };
   }
@@ -810,41 +773,17 @@ export default function LandMap() {
   };
 
   const cancelManualSplit = () => {
-    setSplitMode(false);
-    setSplitPoints([]);
-    setMsg("Manual division cancelled.");
+    setSplitMode(false); setSplitPoints([]); setMsg("Manual division cancelled.");
   };
 
   const applyManualSplit = () => {
-    if (splitPoints.length !== 2) {
-      setMsg("Pick two boundary points to split.");
-      return;
-    }
+    if (splitPoints.length !== 2) { setMsg("Pick two boundary points to split."); return; }
     const preview = getSplitPreview(points, splitPoints[0], splitPoints[1]);
-    if (!preview) {
-      setMsg("Invalid split selection. Choose two non-adjacent boundary points.");
-      return;
-    }
-    const section1 = {
-      id: Date.now(),
-      name: `${curPlot.name} - A`,
-      color: PLOT_COLORS[plots.length % PLOT_COLORS.length],
-      points: preview.sectionA,
-    };
-    const section2 = {
-      id: Date.now() + 1,
-      name: `${curPlot.name} - B`,
-      color: PLOT_COLORS[(plots.length + 1) % PLOT_COLORS.length],
-      points: preview.sectionB,
-    };
-    setPlots(prev => {
-      const next = [...prev];
-      next.splice(activePlot, 1, section1, section2);
-      return next;
-    });
-    setActivePlot(activePlot);
-    setSplitMode(false);
-    setSplitPoints([]);
+    if (!preview) { setMsg("Invalid split selection. Choose two non-adjacent boundary points."); return; }
+    const section1 = { id: Date.now(), name: `${curPlot.name} - A`, color: PLOT_COLORS[plots.length % PLOT_COLORS.length], points: preview.sectionA };
+    const section2 = { id: Date.now() + 1, name: `${curPlot.name} - B`, color: PLOT_COLORS[(plots.length + 1) % PLOT_COLORS.length], points: preview.sectionB };
+    setPlots(prev => { const next = [...prev]; next.splice(activePlot, 1, section1, section2); return next; });
+    setActivePlot(activePlot); setSplitMode(false); setSplitPoints([]);
     setMsg(`Split ${curPlot.name} into two plot sections.`);
   };
 
@@ -992,7 +931,7 @@ export default function LandMap() {
     : { bg:"rgba(239,68,68,0.15)", border:"rgba(239,68,68,0.3)", text:"#f87171", label:"Weak" }
     : null;
 
-  // ── Sheet height map ──────────────────────────────────────────────────────────
+  // ── FIX #2: Sheet heights ─────────────────────────────────────────────────────
   const SHEET_HEIGHTS = { peek: "116px", half: "48vh", full: "86vh" };
 
   // ── Shared sub-components ─────────────────────────────────────────────────────
@@ -1056,222 +995,7 @@ export default function LandMap() {
     .cpop .leaflet-popup-close-button{color:#888;font-size:16px;padding:4px 6px}
   `;
 
-  // ── Desktop panel (fixed sidebar) ─────────────────────────────────────────────
-  const DesktopPanel = () => (
-    <div style={{
-      position: "absolute", top: 12, left: 12, zIndex: 1000,
-      background: "rgba(8,10,20,0.93)", backdropFilter: "blur(14px)",
-      padding: "14px", borderRadius: 18, width: 280, color: "#fff",
-      boxShadow: "0 8px 40px rgba(0,0,0,0.5)", border: "1px solid rgba(255,255,255,0.08)",
-      maxHeight: "calc(100vh - 24px)", overflowY: "auto",
-    }}>
-      <PanelContent />
-    </div>
-  );
-
-  // ── Mobile bottom sheet ────────────────────────────────────────────────────────
-  const MobileSheet = () => (
-    <div
-      ref={sheetRef}
-      onTouchStart={handleTouchStart}
-      onTouchEnd={handleTouchEnd}
-      style={{
-        position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 1000,
-        background: "rgba(8,10,20,0.97)", backdropFilter: "blur(20px)",
-        borderRadius: "20px 20px 0 0",
-        border: "1px solid rgba(255,255,255,0.09)",
-        height: SHEET_HEIGHTS[sheetState],
-        transition: "height 0.35s cubic-bezier(0.32,0.72,0,1)",
-        boxShadow: "0 -8px 48px rgba(0,0,0,0.6)",
-        display: "flex", flexDirection: "column",
-        overflowY: "hidden",
-        willChange: "height",
-      }}
-    >
-      {/* Drag handle */}
-      <div
-        style={{
-          flexShrink: 0,
-          padding: "10px 0 6px",
-          display: "flex", flexDirection: "column", alignItems: "center",
-          cursor: "pointer",
-        }}
-        onClick={() => setSheetState(s => s === "peek" ? "half" : s === "half" ? "full" : "peek")}
-      >
-        <div style={{ width: 36, height: 4, borderRadius: 2, background: "rgba(255,255,255,0.2)", marginBottom: 6 }} />
-        {/* Peek row: stats + primary action always visible */}
-        <div style={{ width: "100%", padding: "0 14px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <div style={{ display: "flex", gap: 10 }}>
-            <div style={{ textAlign: "center" }}>
-              <div style={{ fontSize: 9, color: "#555", lineHeight: 1 }}>PERCH</div>
-              <div style={{ fontSize: 15, fontWeight: 700, color: "#a78bfa", lineHeight: 1.2 }}>{perch.toFixed(2)}</div>
-            </div>
-            <div style={{ width: 1, background: "rgba(255,255,255,0.08)" }} />
-            <div style={{ textAlign: "center" }}>
-              <div style={{ fontSize: 9, color: "#555", lineHeight: 1 }}>m²</div>
-              <div style={{ fontSize: 15, fontWeight: 700, color: "#fff", lineHeight: 1.2 }}>{area.toFixed(0)}</div>
-            </div>
-            <div style={{ width: 1, background: "rgba(255,255,255,0.08)" }} />
-            <div style={{ textAlign: "center" }}>
-              <div style={{ fontSize: 9, color: "#555", lineHeight: 1 }}>PTS</div>
-              <div style={{ fontSize: 15, fontWeight: 700, color: "#fff", lineHeight: 1.2 }}>{points.length}</div>
-            </div>
-            {accColor && (
-              <>
-                <div style={{ width: 1, background: "rgba(255,255,255,0.08)" }} />
-                <div style={{ textAlign: "center" }}>
-                  <div style={{ fontSize: 9, color: "#555", lineHeight: 1 }}>GPS</div>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: accColor.text, lineHeight: 1.2 }}>±{gpsAccuracy}m</div>
-                </div>
-              </>
-            )}
-          </div>
-          <div style={{ fontSize: 10, color: "#444", paddingRight: 4 }}>
-            {sheetState === "peek" ? "▲ expand" : sheetState === "half" ? "▲ more" : "▼ hide"}
-          </div>
-        </div>
-      </div>
-
-      {/* Scrollable content — only visible when half / full */}
-      <div style={{
-        flex: 1,
-        overflowY: sheetState === "peek" ? "hidden" : "auto",
-        padding: "4px 14px 36px",
-        color: "#fff",
-        opacity: sheetState === "peek" ? 0 : 1,
-        transition: "opacity 0.2s",
-        pointerEvents: sheetState === "peek" ? "none" : "auto",
-      }}>
-        <div style={{ display: "grid", gap: 10, marginBottom: 10 }}>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <input
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-              placeholder="Search place or address"
-              style={{
-                flex: 1,
-                minWidth: 0,
-                padding: "10px 12px",
-                borderRadius: 12,
-                border: "1px solid rgba(255,255,255,0.14)",
-                background: "rgba(255,255,255,0.08)",
-                color: "#fff",
-                fontSize: 13,
-              }}
-            />
-            <button
-              onClick={searchLocation}
-              disabled={isSearching}
-              style={{
-                padding: "10px 14px",
-                borderRadius: 12,
-                border: "none",
-                background: "linear-gradient(135deg,#0ea5e9,#3b82f6)",
-                color: "#fff",
-                fontSize: 12,
-                fontWeight: 700,
-                cursor: isSearching ? "not-allowed" : "pointer",
-              }}
-            >
-              {isSearching ? "Searching..." : "Search"}
-            </button>
-          </div>
-          {searchResults.length > 0 && (
-            <div style={{ maxHeight: 140, overflowY: "auto", background: "rgba(255,255,255,0.05)", borderRadius: 14, padding: 8, border: "1px solid rgba(255,255,255,0.12)" }}>
-              {searchResults.map((result, index) => (
-                <button
-                  key={`${result.place_id}-${index}`}
-                  onClick={() => goToLocation(result)}
-                  style={{
-                    width: "100%",
-                    textAlign: "left",
-                    marginBottom: 6,
-                    padding: "10px 12px",
-                    borderRadius: 10,
-                    border: "1px solid rgba(255,255,255,0.12)",
-                    background: "rgba(255,255,255,0.04)",
-                    color: "#fff",
-                    cursor: "pointer",
-                  }}
-                >
-                  <div style={{ fontSize: 12, fontWeight: 700, color: "#f8fafc" }}>{result.display_name}</div>
-                  <div style={{ fontSize: 11, color: "#cbd5e1", marginTop: 2 }}>{result.type}</div>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Quick actions always-visible row */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 7, marginBottom: 10, marginTop: 4 }}>
-          <button onClick={addPoint} disabled={isCapturing} style={{
-            padding: "13px 6px",
-            background: isCapturing ? "rgba(99,102,241,0.3)" : "linear-gradient(135deg,#6366f1,#8b5cf6)",
-            color: "#fff", border: "none", borderRadius: 12, fontSize: 12, fontWeight: 700,
-            cursor: isCapturing ? "not-allowed" : "pointer",
-            display: "flex", flexDirection: "column", alignItems: "center", gap: 3,
-            boxShadow: isCapturing ? "none" : "0 3px 14px rgba(99,102,241,0.4)",
-          }}>
-            <span style={{ fontSize: 18 }}>📍</span>
-            {isCapturing ? `${captureProgress}%` : "Add Pt"}
-          </button>
-          <button onClick={getLocation} style={{
-            padding: "13px 6px", background: "#1d4ed8", color: "#fff",
-            border: "none", borderRadius: 12, fontSize: 12, fontWeight: 700,
-            cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 3,
-          }}>
-            <span style={{ fontSize: 18 }}>🎯</span>
-            Locate
-          </button>
-          <button onClick={() => setPoints(p => p.slice(0,-1))} disabled={points.length === 0} style={{
-            padding: "13px 6px",
-            background: points.length === 0 ? "rgba(255,255,255,0.04)" : "#92400e",
-            color: points.length === 0 ? "#444" : "#fff",
-            border: "none", borderRadius: 12, fontSize: 12, fontWeight: 700,
-            cursor: points.length === 0 ? "not-allowed" : "pointer",
-            display: "flex", flexDirection: "column", alignItems: "center", gap: 3,
-          }}>
-            <span style={{ fontSize: 18 }}>↩</span>
-            Undo
-          </button>
-        </div>
-
-        {/* Capture progress bar */}
-        {isCapturing && (
-          <div style={{ marginBottom: 8 }}>
-            <div style={{ fontSize: 10, color: "#888", marginBottom: 3 }}>Averaging {SAMPLES} readings...</div>
-            <div style={{ background: "rgba(255,255,255,0.08)", borderRadius: 99, height: 5 }}>
-              <div style={{ background: "linear-gradient(90deg,#6366f1,#a78bfa)", width: `${captureProgress}%`, height: "100%", borderRadius: 99, transition: "width 0.3s" }} />
-            </div>
-          </div>
-        )}
-
-        {/* Status */}
-        {status && (
-          <div style={{ background: "rgba(99,102,241,0.15)", border: "1px solid rgba(99,102,241,0.3)", borderRadius: 8, padding: "6px 10px", marginBottom: 8, fontSize: 11, color: "#a5b4fc" }}>
-            {status}
-          </div>
-        )}
-
-        {/* Tabs */}
-        <div style={{ display: "flex", gap: 4, marginBottom: 10 }}>
-          {[["survey","📍 Survey"],["tools","🔧 Tools"],["plots","🗂 Plots"],["save","💾 Save"]].map(([id,label]) => (
-            <button key={id} onClick={() => setActiveTab(id)} style={{
-              flex: 1, padding: "7px 2px", fontSize: 10, fontWeight: 600,
-              background: activeTab === id ? "#6366f1" : "rgba(255,255,255,0.05)",
-              color: activeTab === id ? "#fff" : "#666",
-              border: activeTab === id ? "1px solid #6366f1" : "1px solid transparent",
-              borderRadius: 8, cursor: "pointer",
-            }}>{label}</button>
-          ))}
-        </div>
-
-        <TabContent />
-      </div>
-    </div>
-  );
-
-  // ── Tab content (shared between mobile/desktop) ────────────────────────────────
+  // ── Tab content ───────────────────────────────────────────────────────────────
   const TabContent = () => {
     if (activeTab === "survey") return (
       <>
@@ -1312,11 +1036,7 @@ export default function LandMap() {
                         <button onClick={() => startNavigationToPoint(activePlot, i)} style={{ padding: "6px 10px", borderRadius: 10, border: "none", background: "#10b981", color: "#fff", fontSize: 11, cursor: "pointer", fontWeight: 700 }}>
                           Navigate
                         </button>
-                        {splitMode && (
-                          <button onClick={() => toggleSplitPoint(i)} style={{ padding: "6px 10px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.12)", background: splitPoints.includes(i) ? "#f97316" : "rgba(255,255,255,0.08)", color: splitPoints.includes(i) ? "#fff" : "#e2e8f0", fontSize: 11, cursor: "pointer", fontWeight: 700 }}>
-                            {splitPoints.includes(i) ? "Picked" : "Split pt"}
-                          </button>
-                        )}
+                        {/* FIX #3: Removed duplicate splitMode button block — only one instance here */}
                         {splitMode && (
                           <button onClick={() => toggleSplitPoint(i)} style={{ padding: "6px 10px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.12)", background: splitPoints.includes(i) ? "#f97316" : "rgba(255,255,255,0.08)", color: splitPoints.includes(i) ? "#fff" : "#e2e8f0", fontSize: 11, cursor: "pointer", fontWeight: 700 }}>
                             {splitPoints.includes(i) ? "Picked" : "Split pt"}
@@ -1453,45 +1173,39 @@ export default function LandMap() {
         <Btn onClick={addPlot} color="#0f766e" full>＋ Add New Plot</Btn>
         <Btn onClick={() => {
             setSplitMode(prev => !prev);
-            if (splitMode) {
-              setSplitPoints([]);
-              setMsg("Manual division disabled.");
-            } else {
-              setMsg("Manual divide enabled. Pick two non-adjacent points in Survey or on the map.");
-            }
+            if (splitMode) { setSplitPoints([]); setMsg("Manual division disabled."); }
+            else setMsg("Manual divide enabled. Pick two non-adjacent points.");
           }}
-          color={splitMode ? "#f97316" : "#0ea5e9"}
-          full
-          style={{ marginTop: 10 }}>
+          color={splitMode ? "#f97316" : "#0ea5e9"} full style={{ marginTop: 10 }}>
           🧩 Manual Divide
         </Btn>
         {splitMode && (
           <div style={{ marginTop: 10, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 14, padding: 10 }}>
             <div style={{ fontSize: 11, color: "#cbd5e1", marginBottom: 8 }}>
-              Select two non-adjacent boundary points to preview the split and compare section area/perimeter.
+              Select two non-adjacent boundary points to preview the split.
             </div>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
               <div style={{ flex: 1, minWidth: 120, fontSize: 11, color: "#fff", background: "rgba(255,255,255,0.04)", borderRadius: 10, padding: 8 }}>
-                Selected points: {splitPoints.length ? splitPoints.map(i => `P${i+1}`).join(" + ") : "none"}
+                Selected: {splitPoints.length ? splitPoints.map(i => `P${i+1}`).join(" + ") : "none"}
               </div>
               <button onClick={cancelManualSplit} style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid rgba(249,115,22,0.5)", background: "rgba(249,115,22,0.1)", color: "#f97316", cursor: "pointer", fontSize: 11, fontWeight: 700 }}>
-                Cancel Split
+                Cancel
               </button>
             </div>
             {splitPreview ? (
               <div style={{ display: "grid", gap: 8, marginBottom: 10 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#e2e8f0" }}>
                   <span>Section A</span>
-                  <span>{splitPreview.sectionA.length} pts · {splitPreview.areaA.toFixed(1)} m² · {splitPreview.perimeterA.toFixed(1)} m</span>
+                  <span>{splitPreview.sectionA.length} pts · {splitPreview.areaA.toFixed(1)} m²</span>
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#e2e8f0" }}>
                   <span>Section B</span>
-                  <span>{splitPreview.sectionB.length} pts · {splitPreview.areaB.toFixed(1)} m² · {splitPreview.perimeterB.toFixed(1)} m</span>
+                  <span>{splitPreview.sectionB.length} pts · {splitPreview.areaB.toFixed(1)} m²</span>
                 </div>
-                <Btn onClick={applyManualSplit} color="#f97316" full>Apply Manual Split</Btn>
+                <Btn onClick={applyManualSplit} color="#f97316" full>Apply Split</Btn>
               </div>
             ) : splitPoints.length === 2 ? (
-              <div style={{ fontSize: 11, color: "#fca5a5" }}>Selected points are adjacent or invalid. Pick a different pair.</div>
+              <div style={{ fontSize: 11, color: "#fca5a5" }}>Points are adjacent or invalid. Pick a different pair.</div>
             ) : null}
           </div>
         )}
@@ -1518,7 +1232,6 @@ export default function LandMap() {
           <Btn onClick={() => setShowSaveModal(true)} color="#6366f1">💾 Save</Btn>
           <Btn onClick={() => setShowLoadModal(true)} color="#0f766e">📂 Load</Btn>
         </Row2>
-
         <SectionLabel>Export</SectionLabel>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 6, marginBottom: 8 }}>
           <Btn onClick={exportNormalPDF} disabled={points.length < 3} color={points.length < 3 ? "#1e293b" : "#0f766e"} small>📄 PDF</Btn>
@@ -1527,7 +1240,6 @@ export default function LandMap() {
           <Btn onClick={exportGeoJSON} disabled={points.length < 3} color={points.length < 3 ? "#1e293b" : "#0e7490"} small>📋 JSON</Btn>
         </div>
         <Btn onClick={shareLink} color="#1d4ed8" full>🔗 Copy Share Link</Btn>
-
         {savedSurveys.length > 0 && (
           <>
             <SectionLabel>Saved ({savedSurveys.length})</SectionLabel>
@@ -1547,11 +1259,10 @@ export default function LandMap() {
         )}
       </>
     );
-
     return null;
   };
 
-  // ── Desktop panel with tabs ────────────────────────────────────────────────────
+  // ── Desktop panel content ─────────────────────────────────────────────────────
   const PanelContent = () => (
     <>
       <div style={{ marginBottom: 10, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -1567,66 +1278,32 @@ export default function LandMap() {
               color: mapType === style.id ? "#fff" : "#ccc",
               border: mapType === style.id ? `1px solid ${style.accent}` : "1px solid rgba(255,255,255,0.16)",
               borderRadius: 10, cursor: "pointer",
-            }}>
-              {style.label}
-            </button>
+            }}>{style.label}</button>
           ))}
         </div>
       </div>
 
       <div style={{ marginBottom: 12, display: "grid", gap: 8 }}>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          <input
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
+          <input value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && searchLocation()}
             placeholder="Search place or address"
-            style={{
-              flex: 1,
-              minWidth: 0,
-              padding: "10px 12px",
-              borderRadius: 12,
-              border: "1px solid rgba(255,255,255,0.14)",
-              background: "rgba(255,255,255,0.07)",
-              color: "#fff",
-              fontSize: 13,
-            }}
-          />
-          <button
-            onClick={searchLocation}
-            disabled={isSearching}
-            style={{
-              padding: "10px 14px",
-              borderRadius: 12,
-              border: "none",
-              background: "linear-gradient(135deg,#0ea5e9,#3b82f6)",
-              color: "#fff",
-              fontSize: 12,
-              fontWeight: 700,
-              cursor: isSearching ? "not-allowed" : "pointer",
-            }}
-          >
-            {isSearching ? "Searching..." : "Search"}
-          </button>
+            style={{ flex: 1, minWidth: 0, padding: "10px 12px", borderRadius: 12, border: "1px solid rgba(255,255,255,0.14)", background: "rgba(255,255,255,0.07)", color: "#fff", fontSize: 13 }} />
+          <button onClick={searchLocation} disabled={isSearching} style={{
+            padding: "10px 14px", borderRadius: 12, border: "none",
+            background: "linear-gradient(135deg,#0ea5e9,#3b82f6)", color: "#fff", fontSize: 12, fontWeight: 700,
+            cursor: isSearching ? "not-allowed" : "pointer",
+          }}>{isSearching ? "..." : "Search"}</button>
         </div>
         {searchResults.length > 0 && (
           <div style={{ maxHeight: 180, overflowY: "auto", background: "rgba(255,255,255,0.08)", borderRadius: 14, padding: 8, border: "1px solid rgba(255,255,255,0.12)" }}>
             {searchResults.map((result, index) => (
-              <button
-                key={`${result.place_id}-${index}`}
-                onClick={() => goToLocation(result)}
-                style={{
-                  width: "100%",
-                  textAlign: "left",
-                  marginBottom: 6,
-                  padding: "10px 12px",
-                  borderRadius: 10,
-                  border: "1px solid rgba(255,255,255,0.12)",
-                  background: "rgba(255,255,255,0.04)",
-                  color: "#edf2ff",
-                  cursor: "pointer",
-                }}
-              >
-                <div style={{ fontSize: 12, fontWeight: 700, color: "#f8fafc" }}>{result.display_name}</div>
+              <button key={`${result.place_id}-${index}`} onClick={() => goToLocation(result)} style={{
+                width: "100%", textAlign: "left", marginBottom: 6, padding: "10px 12px",
+                borderRadius: 10, border: "1px solid rgba(255,255,255,0.12)", background: "rgba(255,255,255,0.04)",
+                color: "#edf2ff", cursor: "pointer",
+              }}>
+                <div style={{ fontSize: 12, fontWeight: 700 }}>{result.display_name}</div>
                 <div style={{ fontSize: 11, color: "#cbd5e1", marginTop: 2 }}>{result.type}</div>
               </button>
             ))}
@@ -1646,8 +1323,8 @@ export default function LandMap() {
       )}
       {navigationActive && navTarget != null && (
         <div style={{ background: "rgba(248,208,122,0.15)", border: "1px solid rgba(245,158,11,0.3)", borderRadius: 8, padding: "6px 10px", marginBottom: 8, color: "#92400e", fontSize: 11 }}>
-          <div style={{ fontWeight: 700, marginBottom: 4 }}>🚶‍♂️ Navigation Active</div>
-          <div>P{navTarget.index + 1} target • {navDistance != null ? `${navDistance.toFixed(1)}m` : "calibrating..."}</div>
+          <div style={{ fontWeight: 700, marginBottom: 4 }}>🚶 Navigation Active</div>
+          <div>P{navTarget.index + 1} • {navDistance != null ? `${navDistance.toFixed(1)}m` : "calibrating..."}</div>
           <button onClick={stopNavigation} style={{ marginTop: 8, width: "100%", padding: "8px", borderRadius: 8, border: "none", background: "#f97316", color: "#fff", cursor: "pointer", fontSize: 11, fontWeight: 700 }}>Stop Navigation</button>
         </div>
       )}
@@ -1687,21 +1364,187 @@ export default function LandMap() {
           }}>{icon} {id.charAt(0).toUpperCase()+id.slice(1)}</button>
         ))}
       </div>
-
       <TabContent />
     </>
   );
 
-  // ── Map controls (always visible on map layer) ────────────────────────────────
-  const MapControls = () => (
+  // ── Desktop panel ─────────────────────────────────────────────────────────────
+  const DesktopPanel = () => (
     <div style={{
-      position: "absolute",
-      top: isMobile ? 12 : 12,
-      right: 12,
-      zIndex: 999,
-      display: "flex", flexDirection: "column", gap: 6,
+      position: "absolute", top: 12, left: 12, zIndex: 1000,
+      background: "rgba(8,10,20,0.93)", backdropFilter: "blur(14px)",
+      padding: "14px", borderRadius: 18, width: 280, color: "#fff",
+      boxShadow: "0 8px 40px rgba(0,0,0,0.5)", border: "1px solid rgba(255,255,255,0.08)",
+      maxHeight: "calc(100vh - 24px)", overflowY: "auto",
     }}>
-      {/* Map type toggle (mobile only — desktop has it in sidebar) */}
+      <PanelContent />
+    </div>
+  );
+
+  // ── Mobile bottom sheet ────────────────────────────────────────────────────────
+  const MobileSheet = () => (
+    <div
+      ref={sheetRef}
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+      style={{
+        position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 1000,
+        background: "rgba(8,10,20,0.97)", backdropFilter: "blur(20px)",
+        borderRadius: "20px 20px 0 0",
+        border: "1px solid rgba(255,255,255,0.09)",
+        height: SHEET_HEIGHTS[sheetState],
+        transition: "height 0.35s cubic-bezier(0.32,0.72,0,1)",
+        boxShadow: "0 -8px 48px rgba(0,0,0,0.6)",
+        display: "flex", flexDirection: "column",
+        overflowY: "hidden",
+        willChange: "height",
+      }}
+    >
+      {/* Drag handle */}
+      <div
+        style={{ flexShrink: 0, padding: "10px 0 6px", display: "flex", flexDirection: "column", alignItems: "center", cursor: "pointer" }}
+        onClick={() => setSheetState(s => s === "peek" ? "half" : s === "half" ? "full" : "peek")}
+      >
+        <div style={{ width: 36, height: 4, borderRadius: 2, background: "rgba(255,255,255,0.2)", marginBottom: 6 }} />
+        <div style={{ width: "100%", padding: "0 14px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ display: "flex", gap: 10 }}>
+            <div style={{ textAlign: "center" }}>
+              <div style={{ fontSize: 9, color: "#555", lineHeight: 1 }}>PERCH</div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: "#a78bfa", lineHeight: 1.2 }}>{perch.toFixed(2)}</div>
+            </div>
+            <div style={{ width: 1, background: "rgba(255,255,255,0.08)" }} />
+            <div style={{ textAlign: "center" }}>
+              <div style={{ fontSize: 9, color: "#555", lineHeight: 1 }}>m²</div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: "#fff", lineHeight: 1.2 }}>{area.toFixed(0)}</div>
+            </div>
+            <div style={{ width: 1, background: "rgba(255,255,255,0.08)" }} />
+            <div style={{ textAlign: "center" }}>
+              <div style={{ fontSize: 9, color: "#555", lineHeight: 1 }}>PTS</div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: "#fff", lineHeight: 1.2 }}>{points.length}</div>
+            </div>
+            {accColor && (
+              <>
+                <div style={{ width: 1, background: "rgba(255,255,255,0.08)" }} />
+                <div style={{ textAlign: "center" }}>
+                  <div style={{ fontSize: 9, color: "#555", lineHeight: 1 }}>GPS</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: accColor.text, lineHeight: 1.2 }}>±{gpsAccuracy}m</div>
+                </div>
+              </>
+            )}
+          </div>
+          <div style={{ fontSize: 10, color: "#444", paddingRight: 4 }}>
+            {sheetState === "peek" ? "▲ expand" : sheetState === "half" ? "▲ more" : "▼ hide"}
+          </div>
+        </div>
+      </div>
+
+      {/* Scrollable content */}
+      <div style={{
+        flex: 1,
+        overflowY: sheetState === "peek" ? "hidden" : "auto",
+        padding: "4px 14px 36px",
+        color: "#fff",
+        opacity: sheetState === "peek" ? 0 : 1,
+        transition: "opacity 0.2s",
+        pointerEvents: sheetState === "peek" ? "none" : "auto",
+      }}>
+        {/* Search */}
+        <div style={{ display: "grid", gap: 10, marginBottom: 10 }}>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <input value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && searchLocation()}
+              placeholder="Search place or address"
+              style={{ flex: 1, minWidth: 0, padding: "10px 12px", borderRadius: 12, border: "1px solid rgba(255,255,255,0.14)", background: "rgba(255,255,255,0.08)", color: "#fff", fontSize: 13 }} />
+            <button onClick={searchLocation} disabled={isSearching} style={{
+              padding: "10px 14px", borderRadius: 12, border: "none",
+              background: "linear-gradient(135deg,#0ea5e9,#3b82f6)", color: "#fff", fontSize: 12, fontWeight: 700,
+              cursor: isSearching ? "not-allowed" : "pointer",
+            }}>{isSearching ? "..." : "Search"}</button>
+          </div>
+          {searchResults.length > 0 && (
+            <div style={{ maxHeight: 140, overflowY: "auto", background: "rgba(255,255,255,0.05)", borderRadius: 14, padding: 8, border: "1px solid rgba(255,255,255,0.12)" }}>
+              {searchResults.map((result, index) => (
+                <button key={`${result.place_id}-${index}`} onClick={() => goToLocation(result)} style={{
+                  width: "100%", textAlign: "left", marginBottom: 6, padding: "10px 12px",
+                  borderRadius: 10, border: "1px solid rgba(255,255,255,0.12)", background: "rgba(255,255,255,0.04)",
+                  color: "#fff", cursor: "pointer",
+                }}>
+                  <div style={{ fontSize: 12, fontWeight: 700 }}>{result.display_name}</div>
+                  <div style={{ fontSize: 11, color: "#cbd5e1", marginTop: 2 }}>{result.type}</div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Quick actions */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 7, marginBottom: 10, marginTop: 4 }}>
+          <button onClick={addPoint} disabled={isCapturing} style={{
+            padding: "13px 6px",
+            background: isCapturing ? "rgba(99,102,241,0.3)" : "linear-gradient(135deg,#6366f1,#8b5cf6)",
+            color: "#fff", border: "none", borderRadius: 12, fontSize: 12, fontWeight: 700,
+            cursor: isCapturing ? "not-allowed" : "pointer",
+            display: "flex", flexDirection: "column", alignItems: "center", gap: 3,
+            boxShadow: isCapturing ? "none" : "0 3px 14px rgba(99,102,241,0.4)",
+          }}>
+            <span style={{ fontSize: 18 }}>📍</span>
+            {isCapturing ? `${captureProgress}%` : "Add Pt"}
+          </button>
+          <button onClick={getLocation} style={{
+            padding: "13px 6px", background: "#1d4ed8", color: "#fff",
+            border: "none", borderRadius: 12, fontSize: 12, fontWeight: 700,
+            cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 3,
+          }}>
+            <span style={{ fontSize: 18 }}>🎯</span>Locate
+          </button>
+          <button onClick={() => setPoints(p => p.slice(0,-1))} disabled={points.length === 0} style={{
+            padding: "13px 6px",
+            background: points.length === 0 ? "rgba(255,255,255,0.04)" : "#92400e",
+            color: points.length === 0 ? "#444" : "#fff",
+            border: "none", borderRadius: 12, fontSize: 12, fontWeight: 700,
+            cursor: points.length === 0 ? "not-allowed" : "pointer",
+            display: "flex", flexDirection: "column", alignItems: "center", gap: 3,
+          }}>
+            <span style={{ fontSize: 18 }}>↩</span>Undo
+          </button>
+        </div>
+
+        {isCapturing && (
+          <div style={{ marginBottom: 8 }}>
+            <div style={{ fontSize: 10, color: "#888", marginBottom: 3 }}>Averaging {SAMPLES} readings...</div>
+            <div style={{ background: "rgba(255,255,255,0.08)", borderRadius: 99, height: 5 }}>
+              <div style={{ background: "linear-gradient(90deg,#6366f1,#a78bfa)", width: `${captureProgress}%`, height: "100%", borderRadius: 99, transition: "width 0.3s" }} />
+            </div>
+          </div>
+        )}
+
+        {status && (
+          <div style={{ background: "rgba(99,102,241,0.15)", border: "1px solid rgba(99,102,241,0.3)", borderRadius: 8, padding: "6px 10px", marginBottom: 8, fontSize: 11, color: "#a5b4fc" }}>
+            {status}
+          </div>
+        )}
+
+        {/* Tabs */}
+        <div style={{ display: "flex", gap: 4, marginBottom: 10 }}>
+          {[["survey","📍 Survey"],["tools","🔧 Tools"],["plots","🗂 Plots"],["save","💾 Save"]].map(([id,label]) => (
+            <button key={id} onClick={() => setActiveTab(id)} style={{
+              flex: 1, padding: "7px 2px", fontSize: 10, fontWeight: 600,
+              background: activeTab === id ? "#6366f1" : "rgba(255,255,255,0.05)",
+              color: activeTab === id ? "#fff" : "#666",
+              border: activeTab === id ? "1px solid #6366f1" : "1px solid transparent",
+              borderRadius: 8, cursor: "pointer",
+            }}>{label}</button>
+          ))}
+        </div>
+
+        <TabContent />
+      </div>
+    </div>
+  );
+
+  // ── Map overlay controls ──────────────────────────────────────────────────────
+  const MapControls = () => (
+    <div style={{ position: "absolute", top: 12, right: 12, zIndex: 999, display: "flex", flexDirection: "column", gap: 6 }}>
       {isMobile && (
         <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
           {MAP_STYLES.map(style => (
@@ -1711,34 +1554,19 @@ export default function LandMap() {
               color: mapType === style.id ? "#fff" : "#ddd",
               border: mapType === style.id ? `1px solid ${style.accent}` : "1px solid rgba(255,255,255,0.12)",
               borderRadius: 9, cursor: "pointer", backdropFilter: "blur(8px)",
-            }}>
-              {style.label}
-            </button>
+            }}>{style.label}</button>
           ))}
         </div>
       )}
-
-      {/* Distance mode indicator */}
       {mapMode === "distance" && (
-        <div style={{
-          background: "rgba(16,185,129,0.15)", border: "1px solid rgba(16,185,129,0.4)",
-          borderRadius: 9, padding: "6px 10px", color: "#34d399", fontSize: 11, fontWeight: 600,
-          backdropFilter: "blur(8px)",
-        }}>
+        <div style={{ background: "rgba(16,185,129,0.15)", border: "1px solid rgba(16,185,129,0.4)", borderRadius: 9, padding: "6px 10px", color: "#34d399", fontSize: 11, fontWeight: 600, backdropFilter: "blur(8px)" }}>
           📏 Tap map to measure
           {distanceMeasured && <div style={{ color: "#fbbf24", marginTop: 2 }}>{distanceMeasured.toFixed(2)}m</div>}
         </div>
       )}
-
-      {/* Auto walk indicator */}
       {autoActive && (
-        <div style={{
-          background: "rgba(239,68,68,0.15)", border: "1px solid rgba(239,68,68,0.4)",
-          borderRadius: 9, padding: "6px 10px", color: "#f87171", fontSize: 11, fontWeight: 600,
-          backdropFilter: "blur(8px)", display: "flex", alignItems: "center", gap: 6,
-        }}>
-          <span style={{ animation: "pulse 1s infinite", display: "inline-block", fontSize: 8 }}>●</span>
-          Walk mode ON
+        <div style={{ background: "rgba(239,68,68,0.15)", border: "1px solid rgba(239,68,68,0.4)", borderRadius: 9, padding: "6px 10px", color: "#f87171", fontSize: 11, fontWeight: 600, backdropFilter: "blur(8px)", display: "flex", alignItems: "center", gap: 6 }}>
+          <span style={{ fontSize: 8 }}>●</span>Walk mode ON
           <button onClick={stopAuto} style={{ background: "none", border: "none", color: "#f87171", cursor: "pointer", fontSize: 16, padding: 0, marginLeft: 4 }}>■</button>
         </div>
       )}
@@ -1747,25 +1575,27 @@ export default function LandMap() {
 
   // ── RENDER ────────────────────────────────────────────────────────────────────
   return (
-    <div style={{ position: "relative", width: "100%", height: "100dvh", fontFamily: "'DM Sans','Segoe UI',sans-serif" }}>
+    // FIX #2: Added minHeight fallback for Android WebViews that fail on 100dvh
+    <div style={{ position: "relative", width: "100%", height: "100dvh", minHeight: "600px", fontFamily: "'DM Sans','Segoe UI',sans-serif" }}>
       <style>{popupCSS}</style>
       <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}`}</style>
 
-      {/* ── MAP (always full screen) ────────────────────────────────────── */}
+      {/* FIX #2: Map container height with fallback */}
       <MapContainer
         center={[6.9271, 79.8612]}
         zoom={18}
-        style={{ height: "100dvh", width: "100%" }}
+        style={{ height: "100dvh", minHeight: "600px", width: "100%" }}
         zoomControl={!isMobile}
-        whenCreated={(map) => { mapRef.current = map; }}
+        // FIX #1: whenCreated removed — MapRefSetter component used instead
       >
         <TileLayer
           attribution="Map data"
           url={mapType === "normal" ? normalMap : satelliteMap}
           crossOrigin="anonymous"
         />
+        {/* FIX #1: MapRefSetter properly captures map instance */}
+        <MapRefSetter mapRef={mapRef} />
         <MapClickHandler mode={mapMode} setPoints={setPoints} setDistPoints={setDistPoints} />
-        {/* Only flies to location when Locate button is pressed — NOT on every point add */}
         <MapFlyTo flyTrigger={flyTrigger} location={currentLocation} />
 
         {/* Current location marker */}
@@ -1781,9 +1611,11 @@ export default function LandMap() {
             </Popup>
           </Marker>
         )}
+
         {navigationActive && navTarget?.coords && currentLocation && (
           <Polyline positions={[currentLocation, navTarget.coords]} color="#f97316" weight={3} dashArray="8,6" />
         )}
+
         {splitMode && splitPreview && splitPoints.length === 2 && (
           <Polyline positions={[points[splitPreview.indices[0]], points[splitPreview.indices[1]]]} color="#f97316" weight={4} dashArray="6,4" />
         )}
@@ -1825,15 +1657,11 @@ export default function LandMap() {
                         padding: "6px 8px", background: isSelectedPoint ? "#f97316" : "rgba(99,102,241,0.12)",
                         color: isSelectedPoint ? "#fff" : "#dbeafe", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 8,
                         cursor: "pointer", fontSize: 10, fontWeight: 700,
-                      }}>
-                        {isSelectedPoint ? "Targeted" : "Target"}
-                      </button>
+                      }}>{isSelectedPoint ? "Targeted" : "Target"}</button>
                       <button onClick={() => startNavigationToPoint(plotIdx, i)} style={{
                         padding: "6px 8px", background: "#10b981", color: "#fff", border: "none", borderRadius: 8,
                         cursor: "pointer", fontSize: 10, fontWeight: 700,
-                      }}>
-                        Navigate
-                      </button>
+                      }}>Navigate</button>
                     </div>
                     {isActive && (
                       <button onClick={() => setPoints(prev => prev.filter((_,idx) => idx !== i))} style={{
@@ -1880,7 +1708,7 @@ export default function LandMap() {
           </Marker>
         )}
 
-        {/* Distance tool */}
+        {/* Distance tool markers */}
         {mapMode === "distance" && distPoints.map((dp, i) => (
           <Marker key={`dist-${i}`} position={dp}>
             <Popup className="cpop">
@@ -1894,14 +1722,10 @@ export default function LandMap() {
         )}
       </MapContainer>
 
-      {/* ── MAP OVERLAY CONTROLS ─────────────────────────────────────── */}
       <MapControls />
-
-      {/* ── PANEL: desktop sidebar / mobile bottom sheet ──────────────── */}
       {isMobile ? <MobileSheet /> : <DesktopPanel />}
 
       {/* ── MODALS ──────────────────────────────────────────────────────── */}
-
       {showManualModal && (
         <div style={modalBg} onClick={() => setShowManualModal(false)}>
           <div style={modalBox} onClick={e => e.stopPropagation()}>
